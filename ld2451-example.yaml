@@ -1,0 +1,277 @@
+# ============================================================
+# ESPHome LD2451 Radar Sensor - Full Example Configuration
+# ============================================================
+# This example demonstrates all available sensors, binary
+# sensors, text sensors, numbers, selects, switches, buttons,
+# and automation actions for the ld2451 custom component.
+#
+# Hardware: ESP32 (or ESP32-C3) connected to HLK-LD2451
+# UART wiring: TX (ESP) -> RX (LD2451), RX (ESP) -> TX (LD2451)
+# Baud rate: 256000 (fixed, enforced by component)
+# ============================================================
+
+esphome:
+  name: ld2451-radar
+  friendly_name: LD2451 Radar Sensor
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# ── WiFi ────────────────────────────────────────────────────
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "LD2451 Fallback AP"
+    password: !secret ap_password
+
+captive_portal:
+
+# ── Logging ─────────────────────────────────────────────────
+logger:
+  level: DEBUG
+
+# ── Home Assistant API ───────────────────────────────────────
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+# ── OTA Updates ─────────────────────────────────────────────
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# ── External Components ──────────────────────────────────────
+# Point to your local checkout or the GitHub repo
+external_components:
+  - source:
+      type: git
+      url: https://github.com/WizBangCrash/esphome-ld2451
+      ref: main
+    components: [ld2451]
+
+# ── UART ─────────────────────────────────────────────────────
+# Adjust tx_pin / rx_pin to match your wiring
+uart:
+  id: uart_bus
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 256000
+  parity: NONE
+  stop_bits: 1
+
+# ── LD2451 Hub ───────────────────────────────────────────────
+ld2451:
+  id: ld2451_radar
+  uart_id: uart_bus
+
+# ── Sensors (numeric measurements) ──────────────────────────
+sensor:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Total number of targets currently detected
+    target_count:
+      name: "Radar Target Count"
+      id: radar_target_count
+
+    # Per-target sensors — up to 5 targets supported (index 0–4)
+    # Each target exposes: angle (°), distance (m), speed (km/h)
+    targets:
+      - # Target 1
+        angle:
+          name: "Target 1 Angle"
+          id: target_1_angle
+        distance:
+          name: "Target 1 Distance"
+          id: target_1_distance
+        speed:
+          name: "Target 1 Speed"
+          id: target_1_speed
+
+      - # Target 2
+        angle:
+          name: "Target 2 Angle"
+          id: target_2_angle
+        distance:
+          name: "Target 2 Distance"
+          id: target_2_distance
+        speed:
+          name: "Target 2 Speed"
+          id: target_2_speed
+
+      - # Target 3
+        angle:
+          name: "Target 3 Angle"
+          id: target_3_angle
+        distance:
+          name: "Target 3 Distance"
+          id: target_3_distance
+        speed:
+          name: "Target 3 Speed"
+          id: target_3_speed
+
+      - # Target 4
+        angle:
+          name: "Target 4 Angle"
+          id: target_4_angle
+        distance:
+          name: "Target 4 Distance"
+          id: target_4_distance
+        speed:
+          name: "Target 4 Speed"
+          id: target_4_speed
+
+      - # Target 5
+        angle:
+          name: "Target 5 Angle"
+          id: target_5_angle
+        distance:
+          name: "Target 5 Distance"
+          id: target_5_distance
+        speed:
+          name: "Target 5 Speed"
+          id: target_5_speed
+
+# ── Binary Sensors ───────────────────────────────────────────
+binary_sensor:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # True when any target is detected
+    has_target:
+      name: "Radar Has Target"
+      id: radar_has_target
+      device_class: occupancy
+
+    # True when any target is moving toward the sensor
+    has_approaching_target:
+      name: "Radar Has Approaching Target"
+      id: radar_has_approaching_target
+
+    # Per-target approaching flag (one entry per target, same order as sensors)
+    targets:
+      - approaching:
+          name: "Target 1 Approaching"
+          id: target_1_approaching
+      - approaching:
+          name: "Target 2 Approaching"
+          id: target_2_approaching
+      - approaching:
+          name: "Target 3 Approaching"
+          id: target_3_approaching
+      - approaching:
+          name: "Target 4 Approaching"
+          id: target_4_approaching
+      - approaching:
+          name: "Target 5 Approaching"
+          id: target_5_approaching
+
+# ── Text Sensors ─────────────────────────────────────────────
+text_sensor:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Firmware version reported by the LD2451 module (diagnostic)
+    firmware_version:
+      name: "Radar Firmware Version"
+      id: radar_firmware_version
+
+# ── Numbers (writable configuration parameters) ──────────────
+number:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Maximum detection distance (m) — range: 10–100 m, step: 1
+    max_distance:
+      name: "Radar Max Distance"
+      id: radar_max_distance
+
+    # Minimum speed threshold (km/h) — range: 0–120 km/h, step: 1
+    # Targets moving slower than this are ignored
+    min_speed:
+      name: "Radar Min Speed"
+      id: radar_min_speed
+
+    # Delay (seconds) before "no target" state is confirmed — range: 0–255 s, step: 1
+    no_target_delay:
+      name: "Radar No Target Delay"
+      id: radar_no_target_delay
+
+    # Signal-to-noise ratio threshold — range: 3–8, step: 1
+    # Higher values reduce false positives but may miss weak returns
+    snr_threshold:
+      name: "Radar SNR Threshold"
+      id: radar_snr_threshold
+
+# ── Select (enum configuration) ──────────────────────────────
+select:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Detection direction filter
+    # Options: "Away" | "Toward" | "All"
+    detection_direction:
+      name: "Radar Detection Direction"
+      id: radar_detection_direction
+
+# ── Switches ─────────────────────────────────────────────────
+switch:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Require multiple consecutive detections before reporting a target
+    # Reduces spurious detections at the cost of latency
+    require_multiple_detections:
+      name: "Radar Require Multiple Detections"
+      id: radar_require_multiple_detections
+
+    # Enable/disable the LD2451 Bluetooth interface
+    bluetooth:
+      name: "Radar Bluetooth"
+      id: radar_bluetooth
+
+# ── Buttons ──────────────────────────────────────────────────
+button:
+  - platform: ld2451
+    ld2451_id: ld2451_radar
+
+    # Restore all sensor parameters to factory defaults
+    factory_reset:
+      name: "Radar Factory Reset"
+      id: radar_factory_reset
+
+    # Restart (reboot) the LD2451 module
+    restart:
+      name: "Radar Restart"
+      id: radar_restart
+
+    # Re-read current configuration from the module and update HA entities
+    refresh_config:
+      name: "Radar Refresh Config"
+      id: radar_refresh_config
+
+# ── Example Automations ──────────────────────────────────────
+# The component also exposes three automation actions:
+#   ld2451.factory_reset   — same as the button above
+#   ld2451.restart         — same as the button above
+#   ld2451.refresh_config  — same as the button above
+#
+# Example: refresh config on boot so HA shows current values
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            - binary_sensor.is_on: radar_has_approaching_target
+          then:
+            - logger.log: "Approaching target detected!"
+
+# Boot-time config refresh using the automation action
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - ld2451.refresh_config: ld2451_radar
