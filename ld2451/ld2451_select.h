@@ -12,26 +12,26 @@ class LD2451DirectionSelect : public select::Select, public Component {
 
   void setup() override {
     switch (this->parent_->get_config_direction()) {
-      case LD2451Direction::AWAY:
-        this->publish_state("AWAY");
+      case LD2451Direction::Away:
+        this->publish_state("Away");
         break;
-      case LD2451Direction::TOWARD:
-        this->publish_state("TOWARD");
+      case LD2451Direction::Toward:
+        this->publish_state("Toward");
         break;
-      case LD2451Direction::ALL:
+      case LD2451Direction::All:
       default:
-        this->publish_state("ALL");
+        this->publish_state("All");
         break;
     }
   }
 
  protected:
   void control(const std::string &value) override {
-    LD2451Direction dir = LD2451Direction::ALL;
-    if (value == "AWAY") {
-      dir = LD2451Direction::AWAY;
-    } else if (value == "TOWARD") {
-      dir = LD2451Direction::TOWARD;
+    LD2451Direction dir = LD2451Direction::All;
+    if (value == "Away") {
+      dir = LD2451Direction::Away;
+    } else if (value == "Toward") {
+      dir = LD2451Direction::Toward;
     }
     this->parent_->set_detection_direction(dir);
     this->publish_state(value);
