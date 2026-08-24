@@ -1,0 +1,44 @@
+#pragma once
+
+#include "esphome/components/select/select.h"
+#include "ld2451.h"
+
+namespace esphome {
+namespace ld2451 {
+
+class LD2451DirectionSelect : public select::Select, public Component {
+ public:
+  void set_parent(LD2451Component *parent) { this->parent_ = parent; }
+
+  void setup() override {
+    switch (this->parent_->get_config_direction()) {
+      case LD2451Direction::Away:
+        this->publish_state("Away");
+        break;
+      case LD2451Direction::Toward:
+        this->publish_state("Toward");
+        break;
+      case LD2451Direction::All:
+      default:
+        this->publish_state("All");
+        break;
+    }
+  }
+
+ protected:
+  void control(const std::string &value) override {
+    LD2451Direction dir = LD2451Direction::All;
+    if (value == "Away") {
+      dir = LD2451Direction::Away;
+    } else if (value == "Toward") {
+      dir = LD2451Direction::Toward;
+    }
+    this->parent_->set_detection_direction(dir);
+    this->publish_state(value);
+  }
+
+  LD2451Component *parent_{nullptr};
+};
+
+}  // namespace ld2451
+}  // namespace esphome
