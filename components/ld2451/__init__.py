@@ -14,9 +14,9 @@ LD2451Component = ld2451_ns.class_("LD2451Component", cg.Component, uart.UARTDev
 
 LD2451Direction = ld2451_ns.enum("LD2451Direction", is_class=True)
 DIRECTION_OPTIONS = {
-    "AWAY": LD2451Direction.AWAY,
-    "TOWARD": LD2451Direction.TOWARD,
-    "ALL": LD2451Direction.ALL,
+    "Away": LD2451Direction.AWAY,
+    "Toward": LD2451Direction.TOWARD,
+    "All": LD2451Direction.ALL,
 }
 
 CONF_LD2451_ID = "ld2451_id"

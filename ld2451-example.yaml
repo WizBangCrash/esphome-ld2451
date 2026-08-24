@@ -48,7 +48,7 @@ ota:
 external_components:
   - source:
       type: git
-      url: https://github.com/WizBangCrash/esphome-ld2451
+      url: https://github.com/WizBangCrash/esphome-ld2451.git
       ref: main
     components: [ld2451]
 
