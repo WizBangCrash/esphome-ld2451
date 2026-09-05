@@ -4,7 +4,7 @@ from esphome import automation
 from esphome.components import uart
 from esphome.const import CONF_ID
 
-CODEOWNERS = ["@your-github-handle"]
+CODEOWNERS = ["@WizBangCrash"]
 DEPENDENCIES = ["uart"]
 AUTO_LOAD = ["sensor", "binary_sensor", "text_sensor", "number", "select", "switch", "button"]
 MULTI_CONF = True
