@@ -53,6 +53,9 @@ void LD2451Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up LD2451...");
   this->drain_rx_();
   this->refresh_config();
+  // Publish an initial "no target" state so sensors don't sit at NaN/unknown
+  // until the first report frame arrives (or the idle timeout fires).
+  this->clear_all_targets_();
 }
 
 void LD2451Component::dump_config() {
