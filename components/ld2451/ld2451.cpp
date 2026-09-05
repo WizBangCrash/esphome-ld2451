@@ -26,6 +26,7 @@ namespace esphome {
 namespace ld2451 {
 
 static const char *const TAG = "ld2451";
+static const char *const COMPONENT_VERSION = "1.0.0";
 
 static const uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
 static const uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
@@ -60,6 +61,7 @@ void LD2451Component::setup() {
 
 void LD2451Component::dump_config() {
   ESP_LOGCONFIG(TAG, "LD2451:");
+  ESP_LOGCONFIG(TAG, "  Version: %s", COMPONENT_VERSION);
   if (!this->firmware_version_.empty()) {
     ESP_LOGCONFIG(TAG, "  Firmware: %s", this->firmware_version_.c_str());
   }
