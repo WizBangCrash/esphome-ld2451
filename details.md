@@ -80,7 +80,7 @@ All numbers are writable and persist to the module's non-volatile memory.
 |-----|------|-----|-----|------|-------------|
 | `max_distance` | m | 10 | 100 | 1 | Maximum detection range. Targets beyond this are ignored |
 | `min_speed` | km/h | 0 | 120 | 1 | Minimum radial speed threshold. Slower targets are filtered out |
-| `no_target_delay` | s | 0 | 255 | 1 | Seconds to wait after last detection before clearing `has_target` |
+| `no_target_delay` | s | 1 | 30 | 1 | Seconds to wait after last detection before clearing `has_target` |
 | `snr_threshold` | — | 3 | 8 | 1 | Signal-to-noise threshold. Higher values reduce false positives |
 
 ---
