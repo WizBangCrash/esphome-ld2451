@@ -24,7 +24,7 @@ CONF_SNR_THRESHOLD = "snr_threshold"
 NUMBERS = {
     CONF_MAX_DISTANCE: (UNIT_METER, 10, 100, 1, "mdi:arrow-expand-horizontal", "MAX_DISTANCE"),
     CONF_MIN_SPEED: (UNIT_KILOMETER_PER_HOUR, 0, 120, 1, "mdi:speedometer-slow", "MIN_SPEED"),
-    CONF_NO_TARGET_DELAY: (UNIT_SECOND, 0, 255, 1, "mdi:timer-outline", "NO_TARGET_DELAY"),
+    CONF_NO_TARGET_DELAY: (UNIT_SECOND, 0, 30, 1, "mdi:timer-outline", "NO_TARGET_DELAY"),
     CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "SNR_THRESHOLD"),
 }
 
