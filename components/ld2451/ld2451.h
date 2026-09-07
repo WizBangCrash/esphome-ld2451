@@ -169,7 +169,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // last-known config, populated by refresh_config()
   uint8_t cfg_max_distance_{100};
   uint8_t cfg_min_speed_{0};
-  uint8_t cfg_no_target_delay_{0};
+  uint8_t cfg_no_target_delay_{1};
   LD2451Direction cfg_direction_{LD2451Direction::ALL};
   uint8_t cfg_snr_threshold_{4};
   bool cfg_multi_trigger_{false};
