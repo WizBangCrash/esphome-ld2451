@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import binary_sensor
-from esphome.const import DEVICE_CLASS_MOVING, DEVICE_CLASS_OCCUPANCY
+from esphome.const import CONF_ID, DEVICE_CLASS_MOVING, DEVICE_CLASS_OCCUPANCY
 
 from . import CONF_LD2451_ID, LD2451Component
 
@@ -29,6 +29,7 @@ TARGET_SCHEMA = cv.Schema(
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_HAS_TARGET): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_OCCUPANCY,

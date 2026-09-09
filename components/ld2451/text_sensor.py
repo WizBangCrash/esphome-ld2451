@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import text_sensor
-from esphome.const import ENTITY_CATEGORY_DIAGNOSTIC
+from esphome.const import CONF_ID, ENTITY_CATEGORY_DIAGNOSTIC
 
 from . import CONF_LD2451_ID, LD2451Component
 
@@ -11,6 +11,7 @@ CONF_FIRMWARE_VERSION = "firmware_version"
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_FIRMWARE_VERSION): text_sensor.text_sensor_schema(
             icon="mdi:chip",

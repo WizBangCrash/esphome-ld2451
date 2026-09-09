@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import switch
-from esphome.const import ENTITY_CATEGORY_CONFIG
+from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -19,6 +19,7 @@ CONF_BLUETOOTH = "bluetooth"
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_REQUIRE_MULTIPLE_DETECTIONS): switch.switch_schema(
             LD2451MultiTriggerSwitch,

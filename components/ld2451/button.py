@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import button
-from esphome.const import ENTITY_CATEGORY_CONFIG, DEVICE_CLASS_RESTART
+from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG, DEVICE_CLASS_RESTART
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -29,6 +29,7 @@ def _button_schema(icon, device_class):
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         **{
             cv.Optional(key): _button_schema(icon, device_class)

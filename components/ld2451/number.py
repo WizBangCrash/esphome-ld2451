@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import number
 from esphome.const import (
+    CONF_ID,
     ENTITY_CATEGORY_CONFIG,
     UNIT_KILOMETER_PER_HOUR,
     UNIT_METER,
@@ -30,6 +31,7 @@ NUMBERS = {
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         **{
             cv.Optional(key): number.number_schema(
