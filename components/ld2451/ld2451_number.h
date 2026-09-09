@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/components/number/number.h"
+#include "esphome/core/optional.h"
 #include "ld2451.h"
 
 namespace esphome {
@@ -17,8 +18,13 @@ class LD2451Number : public number::Number, public Component {
  public:
   void set_parent(LD2451Component *parent) { this->parent_ = parent; }
   void set_field(LD2451NumberField field) { this->field_ = field; }
+  void set_default_value(uint8_t v) { this->default_value_ = v; }
 
   void setup() override {
+    if (this->default_value_.has_value()) {
+      this->control(*this->default_value_);
+      return;
+    }
     switch (this->field_) {
       case LD2451NumberField::MAX_DISTANCE:
         this->publish_state(this->parent_->get_config_max_distance());
@@ -57,6 +63,7 @@ class LD2451Number : public number::Number, public Component {
 
   LD2451Component *parent_{nullptr};
   LD2451NumberField field_{LD2451NumberField::MAX_DISTANCE};
+  optional<uint8_t> default_value_{};
 };
 
 }  // namespace ld2451

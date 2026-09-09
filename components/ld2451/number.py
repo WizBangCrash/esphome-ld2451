@@ -19,6 +19,7 @@ CONF_MAX_DISTANCE = "max_distance"
 CONF_MIN_SPEED = "min_speed"
 CONF_NO_TARGET_DELAY = "no_target_delay"
 CONF_SNR_THRESHOLD = "snr_threshold"
+CONF_DEFAULT_VALUE = "default_value"
 
 # (yaml key, unit, min, max, step, icon, field enum member)
 NUMBERS = {
@@ -37,6 +38,12 @@ CONFIG_SCHEMA = cv.Schema(
                 unit_of_measurement=unit,
                 icon=icon,
                 entity_category=ENTITY_CATEGORY_CONFIG,
+            ).extend(
+                {
+                    cv.Optional(CONF_DEFAULT_VALUE): cv.int_range(
+                        min=_min, max=_max
+                    ),
+                }
             )
             for key, (unit, _min, _max, _step, icon, _field) in NUMBERS.items()
         },
@@ -56,3 +63,5 @@ async def to_code(config):
         await cg.register_component(n, config[key])
         cg.add(n.set_parent(hub))
         cg.add(n.set_field(getattr(LD2451NumberField, field)))
+        if CONF_DEFAULT_VALUE in config[key]:
+            cg.add(n.set_default_value(config[key][CONF_DEFAULT_VALUE]))
