@@ -1,5 +1,6 @@
 #include "ld2451.h"
 #include <cstring>
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
@@ -79,7 +80,7 @@ void LD2451Component::loop() {
     uint8_t b;
     if (!this->read_byte(&b))
       break;
-    this->process_byte_(b);
+    this->read_frame_(b);
   }
 
   // Some HLK-LD2451 units simply stop transmitting on UART while no target
@@ -104,71 +105,178 @@ void LD2451Component::drain_rx_() {
 }
 
 // ---------------------------------------------------------------------
-// Streaming report-frame parser
+// Streaming Frame parser
 // ---------------------------------------------------------------------
 
-void LD2451Component::process_byte_(uint8_t b) {
+// Read rx data, build a frame and then process it
+bool LD2451Component::read_frame_(uint8_t uart_byte)
+{
   switch (this->state_) {
+    uint8_t frame_byte;
+    // Decide whether this is a report frame or a command ACK frame, and switch to the appropriate state machine.
     case ParseState::HEADER_1:
-      this->state_ = (b == REPORT_HEADER[0]) ? ParseState::HEADER_2 : ParseState::HEADER_1;
+      if (uart_byte == REPORT_HEADER[0])
+      {
+        this->state_ = ParseState::HEADER_2;
+        this->frame_type_ = FrameType::REPORT;
+      }
+      else if (uart_byte == CMD_HEADER[0])
+      {
+        this->state_ = ParseState::HEADER_2;
+        this->frame_type_ = FrameType::COMMAND;
+      }
+      ESP_LOGV(TAG, "Frame type: %u", this->frame_type_);
       break;
+
     case ParseState::HEADER_2:
-      this->state_ = (b == REPORT_HEADER[1]) ? ParseState::HEADER_3 : ParseState::HEADER_1;
+      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[1] : REPORT_HEADER[1];
+      this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_3 : ParseState::HEADER_1;
       break;
+
     case ParseState::HEADER_3:
-      this->state_ = (b == REPORT_HEADER[2]) ? ParseState::HEADER_4 : ParseState::HEADER_1;
+      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[2] : REPORT_HEADER[2];
+      this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_4 : ParseState::HEADER_1;
       break;
-    case ParseState::HEADER_4:
-      if (b == REPORT_HEADER[3]) {
-        this->state_ = ParseState::LEN_LOW;
-      } else {
+
+      case ParseState::HEADER_4:
+      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[3] : REPORT_HEADER[3];
+      this->state_ = (uart_byte == frame_byte) ? ParseState::LEN_LOW : ParseState::HEADER_1;
+      break;
+
+      case ParseState::LEN_LOW:
+        this->payload_len_ = uart_byte;
+        this->state_ = ParseState::LEN_HIGH;
+        break;
+
+      case ParseState::LEN_HIGH:
+        this->payload_len_ |= (static_cast<uint16_t>(uart_byte) << 8);
+        this->payload_.clear();
+        if (this->payload_len_ == 0)
+        {
+          // No target present - frame has no payload, go straight to footer.
+          this->state_ = ParseState::FOOTER_1;
+        }
+        else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5)
+        {
+          // Sanity check - malformed/garbage length, resync.
+          ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
+          this->state_ = ParseState::HEADER_1;
+        }
+        else
+        {
+          this->payload_.reserve(this->payload_len_);
+          this->state_ = ParseState::PAYLOAD;
+        }
+        break;
+
+      case ParseState::PAYLOAD:
+        this->payload_.push_back(uart_byte);
+        if (this->payload_.size() >= this->payload_len_)
+        {
+          this->state_ = ParseState::FOOTER_1;
+        }
+        break;
+
+      case ParseState::FOOTER_1:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[0] : REPORT_FOOTER[0];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_2:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[1] : REPORT_FOOTER[1];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_3:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[2] : REPORT_FOOTER[2];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_4:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
         this->state_ = ParseState::HEADER_1;
+        if (uart_byte != frame_byte)
+        {
+          ESP_LOGW(TAG, "Frame footer mismatch, dropping frame");
+          break;
+        }
+        if (this->frame_type_ == FrameType::COMMAND)
+        {
+          char hex_buf[this->payload_.size()*3];
+          ESP_LOGD(TAG, "Command frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
+        } else {
+
+          char hex_buf[this->payload_.size()*3];
+          ESP_LOGD(TAG, "Report frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
+          this->handle_report_payload_(this->payload_.data(), this->payload_.size());
+        }
+        break;
       }
-      break;
-    case ParseState::LEN_LOW:
-      this->payload_len_ = b;
-      this->state_ = ParseState::LEN_HIGH;
-      break;
-    case ParseState::LEN_HIGH:
-      this->payload_len_ |= (static_cast<uint16_t>(b) << 8);
-      this->payload_.clear();
-      if (this->payload_len_ == 0) {
-        // No target present - frame has no payload, go straight to footer.
-        this->state_ = ParseState::FOOTER_1;
-      } else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5) {
-        // Sanity check - malformed/garbage length, resync.
-        ESP_LOGW(TAG, "Report frame length %u out of range, resyncing", this->payload_len_);
-        this->state_ = ParseState::HEADER_1;
-      } else {
-        this->payload_.reserve(this->payload_len_);
-        this->state_ = ParseState::PAYLOAD;
-      }
-      break;
-    case ParseState::PAYLOAD:
-      this->payload_.push_back(b);
-      if (this->payload_.size() >= this->payload_len_) {
-        this->state_ = ParseState::FOOTER_1;
-      }
-      break;
-    case ParseState::FOOTER_1:
-      this->state_ = (b == REPORT_FOOTER[0]) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
-      break;
-    case ParseState::FOOTER_2:
-      this->state_ = (b == REPORT_FOOTER[1]) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
-      break;
-    case ParseState::FOOTER_3:
-      this->state_ = (b == REPORT_FOOTER[2]) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
-      break;
-    case ParseState::FOOTER_4:
-      if (b == REPORT_FOOTER[3]) {
-        this->handle_report_payload_(this->payload_.data(), this->payload_.size());
-      } else {
-        ESP_LOGW(TAG, "Report frame footer mismatch, dropping frame");
-      }
-      this->state_ = ParseState::HEADER_1;
-      break;
-  }
+      return true;
 }
+
+// void LD2451Component::process_byte_(uint8_t b) {
+//   switch (this->state_) {
+//     case ParseState::HEADER_1:
+//       this->state_ = (b == REPORT_HEADER[0]) ? ParseState::HEADER_2 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::HEADER_2:
+//       this->state_ = (b == REPORT_HEADER[1]) ? ParseState::HEADER_3 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::HEADER_3:
+//       this->state_ = (b == REPORT_HEADER[2]) ? ParseState::HEADER_4 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::HEADER_4:
+//       if (b == REPORT_HEADER[3]) {
+//         this->state_ = ParseState::LEN_LOW;
+//       } else {
+//         this->state_ = ParseState::HEADER_1;
+//       }
+//       break;
+//     case ParseState::LEN_LOW:
+//       this->payload_len_ = b;
+//       this->state_ = ParseState::LEN_HIGH;
+//       break;
+//     case ParseState::LEN_HIGH:
+//       this->payload_len_ |= (static_cast<uint16_t>(b) << 8);
+//       this->payload_.clear();
+//       if (this->payload_len_ == 0) {
+//         // No target present - frame has no payload, go straight to footer.
+//         this->state_ = ParseState::FOOTER_1;
+//       } else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5) {
+//         // Sanity check - malformed/garbage length, resync.
+//         ESP_LOGW(TAG, "Report frame length %u out of range, resyncing", this->payload_len_);
+//         this->state_ = ParseState::HEADER_1;
+//       } else {
+//         this->payload_.reserve(this->payload_len_);
+//         this->state_ = ParseState::PAYLOAD;
+//       }
+//       break;
+//     case ParseState::PAYLOAD:
+//       this->payload_.push_back(b);
+//       if (this->payload_.size() >= this->payload_len_) {
+//         this->state_ = ParseState::FOOTER_1;
+//       }
+//       break;
+//     case ParseState::FOOTER_1:
+//       this->state_ = (b == REPORT_FOOTER[0]) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::FOOTER_2:
+//       this->state_ = (b == REPORT_FOOTER[1]) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::FOOTER_3:
+//       this->state_ = (b == REPORT_FOOTER[2]) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
+//       break;
+//     case ParseState::FOOTER_4:
+//       if (b == REPORT_FOOTER[3]) {
+//         this->handle_report_payload_(this->payload_.data(), this->payload_.size());
+//       } else {
+//         ESP_LOGW(TAG, "Report frame footer mismatch, dropping frame");
+//       }
+//       this->state_ = ParseState::HEADER_1;
+//       break;
+//   }
+// }
 
 void LD2451Component::handle_report_payload_(const uint8_t *data, uint16_t len) {
   this->last_report_ms_ = millis();
@@ -363,7 +471,8 @@ bool LD2451Component::read_ack_frame_(uint8_t command, std::vector<uint8_t> &out
 bool LD2451Component::send_command_(uint8_t command, const uint8_t *value, uint8_t value_len,
                                      std::vector<uint8_t> &response) {
   this->write_command_frame_(command, value, value_len);
-  return this->read_ack_frame_(command, response);
+  // return this->read_ack_frame_(command, response);
+  return true;
 }
 
 bool LD2451Component::enable_config_() {

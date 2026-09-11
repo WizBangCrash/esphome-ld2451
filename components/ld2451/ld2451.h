@@ -133,6 +133,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
 
   // ---- report-frame streaming parser (runs continuously in loop()) ----
   void process_byte_(uint8_t b);
+  bool read_frame_(uint8_t uart_byte);
   void handle_report_payload_(const uint8_t *data, uint16_t len);
   // Publishes target/count/presence state for `count` targets described by
   // `data` (or count=0, data=nullptr to publish an all-clear state). Shared
@@ -141,21 +142,28 @@ class LD2451Component : public Component, public uart::UARTDevice {
   void publish_targets_(const uint8_t *data, uint8_t count);
   void clear_all_targets_();
 
+  // Receive frame states (REPORT FRAME | COMMAND FRAME)
   enum class ParseState : uint8_t {
-    HEADER_1,  // 0xF4
-    HEADER_2,  // 0xF3
-    HEADER_3,  // 0xF2
-    HEADER_4,  // 0xF1
+    HEADER_1,  // 0xF4 or 0xFD
+    HEADER_2,  // 0xF3 or 0xFC
+    HEADER_3,  // 0xF2 or 0xFB
+    HEADER_4,  // 0xF1 or 0xFA
     LEN_LOW,
     LEN_HIGH,
     PAYLOAD,
-    FOOTER_1,  // 0xF8
-    FOOTER_2,  // 0xF7
-    FOOTER_3,  // 0xF6
-    FOOTER_4,  // 0xF5
+    FOOTER_1,  // 0xF8 or 0x04
+    FOOTER_2,  // 0xF7 or 0x03
+    FOOTER_3,  // 0xF6 or 0x02
+    FOOTER_4,  // 0xF5 or 0x01
+  };
+
+  enum class FrameType : uint8_t {
+    REPORT,
+    COMMAND
   };
 
   ParseState state_{ParseState::HEADER_1};
+  FrameType frame_type_{FrameType::REPORT};
   uint16_t payload_len_{0};
   ::std::vector<uint8_t> payload_;
 
