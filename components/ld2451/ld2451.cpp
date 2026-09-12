@@ -61,18 +61,27 @@ void LD2451Component::setup() {
 }
 
 void LD2451Component::dump_config() {
-  ESP_LOGCONFIG(TAG, "LD2451:");
-  ESP_LOGCONFIG(TAG, "  Version: %s", COMPONENT_VERSION);
-  if (!this->firmware_version_.empty()) {
-    ESP_LOGCONFIG(TAG, "  Firmware: %s", this->firmware_version_.c_str());
-  }
-  ESP_LOGCONFIG(TAG, "  Max distance: %u m", this->cfg_max_distance_);
-  ESP_LOGCONFIG(TAG, "  Min speed: %u km/h", this->cfg_min_speed_);
-  ESP_LOGCONFIG(TAG, "  No-target delay: %u s", this->cfg_no_target_delay_);
-  ESP_LOGCONFIG(TAG, "  Detection direction: %u", (unsigned) this->cfg_direction_);
-  ESP_LOGCONFIG(TAG, "  SNR threshold: %u", this->cfg_snr_threshold_);
-  ESP_LOGCONFIG(TAG, "  Multi-trigger required: %s", YESNO(this->cfg_multi_trigger_));
-  ESP_LOGCONFIG(TAG, "  Bluetooth: %s (assumed state - not read back from radar)", ONOFF(this->cfg_bluetooth_enabled_));
+  ESP_LOGCONFIG(TAG,
+                "LD2451:\n"
+                "  Version: %s\n"
+                "  Firmware: %s\n"
+                "  Max distance: %u m\n"
+                "  Min speed: %u km/h\n"
+                "  No-target delay: %u s\n"
+                "  Detection direction: %u\n"
+                "  SNR threshold: %u\n"
+                "  Multi-trigger required: %s\n"
+                "  Bluetooth: %s (assumed state - not read back from radar)",
+                COMPONENT_VERSION,
+                this->firmware_version_.empty() ? "Unknown" : this->firmware_version_.c_str(),
+                this->cfg_max_distance_,
+                this->cfg_min_speed_,
+                this->cfg_no_target_delay_,
+                (unsigned)this->cfg_direction_,
+                this->cfg_snr_threshold_,
+                YESNO(this->cfg_multi_trigger_),
+                ONOFF(this->cfg_bluetooth_enabled_)
+              );
 }
 
 void LD2451Component::loop() {
