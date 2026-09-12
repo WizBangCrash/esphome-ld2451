@@ -156,14 +156,26 @@ class LD2451Component : public Component, public uart::UARTDevice {
     FOOTER_3,  // 0xF6 or 0x02
     FOOTER_4,  // 0xF5 or 0x01
   };
+  ParseState state_{ParseState::HEADER_1};
 
   enum class FrameType : uint8_t {
     REPORT,
     COMMAND
   };
-
-  ParseState state_{ParseState::HEADER_1};
   FrameType frame_type_{FrameType::REPORT};
+
+  // Bitmask for the list of commnds pending for the next loop() call
+  enum CommandFlags : uint8_t {
+    CMD_READ_FIRMWARE         = 0x01,
+    CMD_SET_BAUDRATE          = 0x02,
+    CMD_FACTORY_RESET         = 0x04,
+    CMD_RESTART               = 0x08,
+    CMD_BLUETOOTH             = 0x10,
+    CMD_SET_TARGET_DETECTION  = 0x20,
+    CMD_SET_SENSITIVITY       = 0x40,
+  };
+  CommandFlags pending_commands_{0x00};
+
   uint16_t payload_len_{0};
   ::std::vector<uint8_t> payload_;
 
