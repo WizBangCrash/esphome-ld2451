@@ -90,8 +90,10 @@ void LD2451Component::loop() {
   // target is seen, since nothing would ever arrive to tell us it's gone.
   // If we haven't seen *any* report frame in a while, treat that silence
   // itself as "no target" and clear state once.
-  if (this->last_report_ms_ != 0 && !this->idle_cleared_ &&
-      millis() - this->last_report_ms_ > IDLE_TIMEOUT_MS) {
+  if (this->last_report_ms_ != 0
+                              && !this->idle_cleared_
+                              && (App.get_loop_component_start_time() - this->last_report_ms_) > IDLE_TIMEOUT_MS)
+  {
     this->clear_all_targets_();
     this->idle_cleared_ = true;
   }
@@ -279,7 +281,7 @@ bool LD2451Component::read_frame_(uint8_t uart_byte)
 // }
 
 void LD2451Component::handle_report_payload_(const uint8_t *data, uint16_t len) {
-  this->last_report_ms_ = millis();
+  this->last_report_ms_ = App.get_loop_component_start_time();
   this->idle_cleared_ = false;
 
   uint8_t count = 0;
