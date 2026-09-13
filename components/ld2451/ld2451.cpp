@@ -438,7 +438,7 @@ void LD2451Component::handle_report_frame_(const uint8_t *data, uint16_t len) {
 // ---------------------------------------------------------------------
 //
 
-void LD2451Component::new_write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len) {
+void LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len) {
   uint16_t inner_len = 2 + value_len;  // command word (2 bytes: cmd, 0x00) + value
   this->write_array(CMD_HEADER, 4);
   this->write_byte(inner_len & 0xFF);
@@ -458,27 +458,27 @@ void LD2451Component::new_write_command_frame_(uint8_t command, const uint8_t *v
 
 void LD2451Component::begin_config_() {
   const uint8_t val[2] = {0x01, 0x00};
-  this->new_write_command_frame_(CMD_ENABLE_CONFIG, val, sizeof(val));
+  this->write_command_frame_(CMD_ENABLE_CONFIG, val, sizeof(val));
 }
 
 void LD2451Component::end_config_() {
-  this->new_write_command_frame_(CMD_END_CONFIG, nullptr, 0);
+  this->write_command_frame_(CMD_END_CONFIG, nullptr, 0);
 }
 
 void LD2451Component::factory_reset_() {
-  this->new_write_command_frame_(CMD_FACTORY_RESET, nullptr, 0);
+  this->write_command_frame_(CMD_FACTORY_RESET, nullptr, 0);
 }
 
 void LD2451Component::restart_module_() {
-  this->new_write_command_frame_(CMD_RESTART, nullptr, 0);
+  this->write_command_frame_(CMD_RESTART, nullptr, 0);
 }
 
 void LD2451Component::read_firmware_() {
-  this->new_write_command_frame_(CMD_READ_FIRMWARE, nullptr, 0);
+  this->write_command_frame_(CMD_READ_FIRMWARE, nullptr, 0);
 }
 
 void LD2451Component::get_sensitivity_() {
-  this->new_write_command_frame_(CMD_GET_SENSITIVITY, nullptr, 0);
+  this->write_command_frame_(CMD_GET_SENSITIVITY, nullptr, 0);
 }
 
 // TODO: cfg_multi_trigger should be a number between 0 and 10. Not a boolean!
@@ -488,11 +488,11 @@ void LD2451Component::set_sensitivity_() {
     this->cfg_snr_threshold_,
     0x00, 0x00
   };
-  this->new_write_command_frame_(CMD_SET_SENSITIVITY, val, sizeof(val));
+  this->write_command_frame_(CMD_SET_SENSITIVITY, val, sizeof(val));
 }
 
 void LD2451Component::get_target_detection_cfg_() {
-  this->new_write_command_frame_(CMD_GET_TARGET_DETECTION_CFG, nullptr, 0);
+  this->write_command_frame_(CMD_GET_TARGET_DETECTION_CFG, nullptr, 0);
 }
 
 void LD2451Component::set_target_detection_cfg_() {
@@ -501,7 +501,7 @@ void LD2451Component::set_target_detection_cfg_() {
     static_cast<uint8_t>(this->cfg_direction_),
     this->cfg_min_speed_,
     this->cfg_no_target_delay_};
-  this->new_write_command_frame_(CMD_SET_TARGET_DETECTION_CFG, val, sizeof(val));
+  this->write_command_frame_(CMD_SET_TARGET_DETECTION_CFG, val, sizeof(val));
 }
 
 void LD2451Component::enable_bluetooth_() {
@@ -509,7 +509,7 @@ void LD2451Component::enable_bluetooth_() {
     static_cast<uint8_t>(this->cfg_bluetooth_enabled_ ? 1 : 0),
     0x00
   };
-  this->new_write_command_frame_(CMD_BLUETOOTH, val, sizeof(val));
+  this->write_command_frame_(CMD_BLUETOOTH, val, sizeof(val));
 }
 
 // ---------------------------------------------------------------------
@@ -624,21 +624,6 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
     this->has_approaching_target_binary_sensor_->publish_state(any_approaching);
   }
 #endif
-}
-
-bool LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len) {
-  uint16_t inner_len = 2 + value_len;  // command word (2 bytes: cmd, 0x00) + value
-  this->write_array(CMD_HEADER, 4);
-  this->write_byte(inner_len & 0xFF);
-  this->write_byte((inner_len >> 8) & 0xFF);
-  this->write_byte(command);
-  this->write_byte(0x00);
-  if (value_len > 0 && value != nullptr) {
-    this->write_array(value, value_len);
-  }
-  this->write_array(CMD_FOOTER, 4);
-  this->flush();
-  return true;
 }
 
 // ---------------------------------------------------------------------

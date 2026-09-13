@@ -118,7 +118,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
 
   // ---- Command processing helpers ----
   void action_commands_();
-  void new_write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
+  void write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
   void begin_config_();
   void end_config_();
   void restart_module_();
@@ -131,10 +131,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
   void enable_bluetooth_();
 
   // ---- low level protocol helpers ----
-  bool write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
-  // Reads one ACK frame for `command`, waiting up to COMMAND_TIMEOUT_MS.
-  // On success, `out` holds the ACK payload *after* the 2-byte status word
-  // (i.e. status is checked here, out contains only extra returned data).
   void drain_rx_();
   // Issues the 0xA0 read-firmware command and, on success, updates
   // firmware_version_ (and the linked text_sensor, if any).
