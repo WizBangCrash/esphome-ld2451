@@ -117,15 +117,23 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // report frame when no target is in view.
   static const uint32_t IDLE_TIMEOUT_MS = 1500;
 
+  // ---- Command processing helpers ----
+  bool handle_command_response_frame_(const uint8_t *data, uint16_t len);
+  void action_commands_();
+  void new_write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
+  void begin_config_();
+  void end_config_();
+  void restart_module_();
+
   // ---- low level protocol helpers ----
   bool write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
   // Reads one ACK frame for `command`, waiting up to COMMAND_TIMEOUT_MS.
   // On success, `out` holds the ACK payload *after* the 2-byte status word
   // (i.e. status is checked here, out contains only extra returned data).
   bool read_ack_frame_(uint8_t command, std::vector<uint8_t> &out);
-  bool send_command_(uint8_t command, const uint8_t *value, uint8_t value_len, std::vector<uint8_t> &response);
-  bool enable_config_();
-  bool end_config_();
+  bool send_command_old_(uint8_t command, const uint8_t *value, uint8_t value_len, std::vector<uint8_t> &response);
+  bool enable_config_old_();
+  bool end_config_old_();
   void drain_rx_();
   // Issues the 0xA0 read-firmware command and, on success, updates
   // firmware_version_ (and the linked text_sensor, if any).
@@ -165,17 +173,32 @@ class LD2451Component : public Component, public uart::UARTDevice {
   FrameType frame_type_{FrameType::REPORT};
 
   // Bitmask for the list of commnds pending for the next loop() call
-  enum CommandFlags : uint8_t {
-    CMD_READ_FIRMWARE         = 0x01,
-    CMD_SET_BAUDRATE          = 0x02,
-    CMD_FACTORY_RESET         = 0x04,
-    CMD_RESTART               = 0x08,
-    CMD_BLUETOOTH             = 0x10,
-    CMD_SET_TARGET_DETECTION  = 0x20,
-    CMD_SET_SENSITIVITY       = 0x40,
+  enum CommandFlags : uint16_t {
+    BEGIN_CONFIG          = 0x0001,
+    END_CONFIG            = 0x0002,
+    READ_FIRMWARE         = 0x0004,
+    SET_BAUDRATE          = 0x0008,
+    FACTORY_RESET         = 0x0010,
+    RESTART               = 0x0020,
+    BLUETOOTH             = 0x0040,
+    SET_TARGET_DETECTION  = 0x0080,
+    SET_SENSITIVITY       = 0x0100,
+    WAIT_RESPONSE         = 0x8000,
   };
-  CommandFlags pending_commands_{0x00};
+  uint16_t pending_commands_{0x00};
 
+  // Command Processor states
+  enum class CommandState : uint8_t {
+    BEGIN_CONFIG,
+    END_CONFIG,
+    SEND_COMMAND,
+    WAIT_RESPONSE
+  };
+  CommandState command_state_{CommandState::BEGIN_CONFIG};
+  // Time last configuration session started
+  uint32_t last_action_ms_{0};
+
+  // Received frame payload
   uint16_t payload_len_{0};
   ::std::vector<uint8_t> payload_;
 
