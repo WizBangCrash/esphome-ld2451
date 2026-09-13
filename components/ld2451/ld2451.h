@@ -67,7 +67,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // known query command to read this back from the radar, so
   // get_config_bluetooth_enabled() reflects only what this component has
   // itself set/assumed, not necessarily the radar's actual state at boot.
-  void set_bluetooth_enabled(bool enable);
+  void set_bluetooth_enable(bool enable);
   void factory_reset();
   void restart_module();
 
@@ -173,18 +173,17 @@ class LD2451Component : public Component, public uart::UARTDevice {
   };
   FrameType frame_type_{FrameType::REPORT};
 
-  // TODO: reshuffle the bitmasks
   // Bitmask for the list of commnds pending for the next loop() call
   enum CommandFlags : uint16_t {
-    READ_FIRMWARE         = 0x0004,
-    SET_BAUDRATE          = 0x0008,
-    FACTORY_RESET         = 0x0010,
-    RESTART               = 0x0020,
-    BLUETOOTH             = 0x0040,
-    SET_TARGET_DETECTION  = 0x0080,
-    GET_TARGET_DETECTION  = 0x0100,
-    SET_SENSITIVITY       = 0x0200,
-    GET_SENSITIVITY       = 0x0400,
+    READ_FIRMWARE         = 0x0001,
+    SET_BAUDRATE          = 0x0002,
+    FACTORY_RESET         = 0x0004,
+    RESTART               = 0x0008,
+    BLUETOOTH             = 0x0010,
+    SET_TARGET_DETECTION  = 0x0020,
+    GET_TARGET_DETECTION  = 0x0040,
+    SET_SENSITIVITY       = 0x0080,
+    GET_SENSITIVITY       = 0x0100,
   };
   uint16_t pending_commands_{0x00};
 

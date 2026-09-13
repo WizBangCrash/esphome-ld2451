@@ -29,27 +29,27 @@ namespace ld2451 {
 static const char *const TAG = "ld2451";
 static const char *const COMPONENT_VERSION = "1.0.1";
 
-static const uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
-static const uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
-static const uint8_t REPORT_HEADER[4] = {0xF4, 0xF3, 0xF2, 0xF1};
-static const uint8_t REPORT_FOOTER[4] = {0xF8, 0xF7, 0xF6, 0xF5};
+static constexpr uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
+static constexpr uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
+static constexpr uint8_t REPORT_HEADER[4] = {0xF4, 0xF3, 0xF2, 0xF1};
+static constexpr uint8_t REPORT_FOOTER[4] = {0xF8, 0xF7, 0xF6, 0xF5};
 
-static const uint8_t CMD_ENABLE_CONFIG = 0xFF;
-static const uint8_t CMD_END_CONFIG = 0xFE;
-static const uint8_t CMD_READ_FIRMWARE = 0xA0;
-static const uint8_t CMD_SET_BAUD_RATE = 0xA1;
-static const uint8_t CMD_FACTORY_RESET = 0xA2;
-static const uint8_t CMD_RESTART = 0xA3;
+static constexpr uint8_t CMD_ENABLE_CONFIG = 0xFF;
+static constexpr uint8_t CMD_END_CONFIG = 0xFE;
+static constexpr uint8_t CMD_READ_FIRMWARE = 0xA0;
+static constexpr uint8_t CMD_SET_BAUD_RATE = 0xA1;
+static constexpr uint8_t CMD_FACTORY_RESET = 0xA2;
+static constexpr uint8_t CMD_RESTART = 0xA3;
 // Not directly confirmed in an LD2451-specific protocol excerpt - inferred
 // from the LD2410's command set, which shares this exact 0xA0-0xA3 numbering
 // scheme (firmware/baud/reset/restart) and uses 0xA4 for its Bluetooth
 // on/off toggle with the same 2-byte {enable, 0x00} payload. Worth
 // confirming against real hardware behavior.
-static const uint8_t CMD_BLUETOOTH = 0xA4;
-static const uint8_t CMD_SET_TARGET_DETECTION_CFG = 0x02;
-static const uint8_t CMD_GET_TARGET_DETECTION_CFG = 0x12;
-static const uint8_t CMD_SET_SENSITIVITY = 0x03;
-static const uint8_t CMD_GET_SENSITIVITY = 0x13;
+static constexpr uint8_t CMD_BLUETOOTH = 0xA4;
+static constexpr uint8_t CMD_SET_TARGET_DETECTION_CFG = 0x02;
+static constexpr uint8_t CMD_GET_TARGET_DETECTION_CFG = 0x12;
+static constexpr uint8_t CMD_SET_SENSITIVITY = 0x03;
+static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 
 // ---------------------------------------------------------------------
 // Setup
@@ -678,7 +678,7 @@ void LD2451Component::set_multi_trigger(bool require_multiple) {
   this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
 }
 
-void LD2451Component::set_bluetooth_enabled(bool enable) {
+void LD2451Component::set_bluetooth_enable(bool enable) {
   ESP_LOGI(TAG, "Bluetooth %s - restarting module for it to take effect", ONOFF(enable));
   this->pending_commands_ |= CommandFlags::BLUETOOTH;
   this->pending_commands_ |= CommandFlags::RESTART;

@@ -34,7 +34,7 @@ class LD2451BluetoothSwitch : public switch_::Switch, public Component {
 
  protected:
   void write_state(bool state) override {
-    this->parent_->set_bluetooth_enabled(state);
+    this->parent_->set_bluetooth_enable(state);
     this->publish_state(state);
   }
 
