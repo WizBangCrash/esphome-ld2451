@@ -80,6 +80,7 @@ void LD2451Component::loop() {
   // Process pending commands first
   this->action_commands_();
 
+  // TODO: Move the while loop inside of read_frame_()
   // Now process reports frames and acknowledgements
   while (this->available()) {
     uint8_t b;
@@ -96,8 +97,8 @@ void LD2451Component::loop() {
   // If we haven't seen *any* report frame in a while, treat that silence
   // itself as "no target" and clear state once.
   if (this->last_report_ms_ != 0
-                              && !this->idle_cleared_
-                              && (App.get_loop_component_start_time() - this->last_report_ms_) > IDLE_TIMEOUT_MS)
+        && !this->idle_cleared_
+        && (App.get_loop_component_start_time() - this->last_report_ms_) > IDLE_TIMEOUT_MS)
   {
     this->clear_all_targets_();
     this->idle_cleared_ = true;
@@ -127,7 +128,7 @@ void LD2451Component::action_commands_()
     // Wait for a response from command action
     // Timeout if no response recieved within defined period
     case CommandState::WAIT_RESPONSE:
-      if ((App.get_loop_component_start_time() - this->last_action_ms_) > 500) {
+      if ((App.get_loop_component_start_time() - this->last_action_ms_) > COMMAND_TIMEOUT_MS) {
         this->command_state_ = CommandState::BEGIN_CONFIG;
         ESP_LOGW(TAG, "Pending commands timed out: %02X", this->pending_commands_);
       }
@@ -601,85 +602,6 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
 #endif
 }
 
-// ---------------------------------------------------------------------
-// Command / ACK exchange (blocking, only used for configuration)
-// ---------------------------------------------------------------------
-
-bool LD2451Component::read_ack_frame_(uint8_t command, std::vector<uint8_t> &out) {
-  uint32_t start = millis();
-  uint8_t match = 0;
-
-  // Sync to FD FC FB FA, ignoring any report frames or noise in between.
-  while (match < 4) {
-    if (millis() - start > COMMAND_TIMEOUT_MS) {
-      ESP_LOGW(TAG, "Timed out waiting for ACK header (cmd 0x%02X)", command);
-      return false;
-    }
-    if (!this->available())
-      continue;
-    uint8_t b;
-    if (!this->read_byte(&b))
-      continue;
-    match = (b == CMD_HEADER[match]) ? match + 1 : (b == CMD_HEADER[0] ? 1 : 0);
-  }
-
-  uint8_t len_buf[2];
-  for (uint8_t i = 0; i < 2; i++) {
-    if (!this->read_array(len_buf + i, 1)) {
-      uint32_t wait_start = millis();
-      while (!this->available()) {
-        if (millis() - wait_start > COMMAND_TIMEOUT_MS)
-          return false;
-      }
-      this->read_array(len_buf + i, 1);
-    }
-  }
-  uint16_t inner_len = len_buf[0] | (static_cast<uint16_t>(len_buf[1]) << 8);
-  if (inner_len < 4 || inner_len > 64) {
-    ESP_LOGW(TAG, "ACK frame length %u out of range", inner_len);
-    return false;
-  }
-
-  std::vector<uint8_t> inner(inner_len);
-  for (uint16_t i = 0; i < inner_len; i++) {
-    uint32_t wait_start = millis();
-    while (!this->available()) {
-      if (millis() - wait_start > COMMAND_TIMEOUT_MS) {
-        ESP_LOGW(TAG, "Timed out reading ACK payload");
-        return false;
-      }
-    }
-    this->read_array(&inner[i], 1);
-  }
-
-  uint8_t footer[4];
-  for (uint8_t i = 0; i < 4; i++) {
-    uint32_t wait_start = millis();
-    while (!this->available()) {
-      if (millis() - wait_start > COMMAND_TIMEOUT_MS)
-        return false;
-    }
-    this->read_array(footer + i, 1);
-  }
-  if (memcmp(footer, CMD_FOOTER, 4) != 0) {
-    ESP_LOGW(TAG, "ACK footer mismatch");
-    return false;
-  }
-
-  if (inner[0] != command || inner[1] != 0x01) {
-    ESP_LOGW(TAG, "ACK cmd mismatch: got 0x%02X, expected 0x%02X", inner[0], command);
-    return false;
-  }
-  uint16_t status = inner[2] | (static_cast<uint16_t>(inner[3]) << 8);
-  if (status != 0x0000) {
-    ESP_LOGW(TAG, "Command 0x%02X failed (status %u)", command, status);
-    return false;
-  }
-
-  out.assign(inner.begin() + 4, inner.end());
-  return true;
-}
-
 bool LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len) {
   uint16_t inner_len = 2 + value_len;  // command word (2 bytes: cmd, 0x00) + value
   this->write_array(CMD_HEADER, 4);
@@ -693,31 +615,6 @@ bool LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value
   this->write_array(CMD_FOOTER, 4);
   this->flush();
   return true;
-}
-
-bool LD2451Component::send_command_old_(uint8_t command, const uint8_t *value, uint8_t value_len,
-                                     std::vector<uint8_t> &response) {
-  this->write_command_frame_(command, value, value_len);
-  // return this->read_ack_frame_(command, response);
-  return true;
-}
-
-bool LD2451Component::enable_config_old_() {
-  std::vector<uint8_t> resp;
-  const uint8_t val[2] = {0x01, 0x00};
-  // The radar may still be mid-way through streaming a report frame when we
-  // ask it to enter config mode; send it twice with a short pause, as
-  // recommended by the datasheet, and clear any stray bytes first.
-  this->drain_rx_();
-  this->send_command_old_(CMD_ENABLE_CONFIG, val, 2, resp);
-  delay(100);  // NOLINT
-  this->drain_rx_();
-  return this->send_command_old_(CMD_ENABLE_CONFIG, val, 2, resp);
-}
-
-bool LD2451Component::end_config_old_() {
-  std::vector<uint8_t> resp;
-  return this->send_command_old_(CMD_END_CONFIG, nullptr, 0, resp);
 }
 
 // ---------------------------------------------------------------------

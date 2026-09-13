@@ -137,14 +137,9 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // Reads one ACK frame for `command`, waiting up to COMMAND_TIMEOUT_MS.
   // On success, `out` holds the ACK payload *after* the 2-byte status word
   // (i.e. status is checked here, out contains only extra returned data).
-  bool read_ack_frame_(uint8_t command, std::vector<uint8_t> &out);
-  bool send_command_old_(uint8_t command, const uint8_t *value, uint8_t value_len, std::vector<uint8_t> &response);
-  bool enable_config_old_();
-  bool end_config_old_();
   void drain_rx_();
   // Issues the 0xA0 read-firmware command and, on success, updates
   // firmware_version_ (and the linked text_sensor, if any).
-  void query_firmware_version_();
 
   // ---- report-frame streaming parser (runs continuously in loop()) ----
   void process_byte_(uint8_t b);
