@@ -88,7 +88,7 @@ void LD2451Component::loop() {
   this->action_commands_();
 
   // Process command responses and report frames
-  this->read_frames_();
+  this->process_frames_();
 
   // Some HLK-LD2451 units simply stop transmitting on UART while no target
   // is present, rather than continuously sending the zero-length "all
@@ -296,7 +296,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
 // ---------------------------------------------------------------------
 
 // Read rx data, build a frame and then process it
-void LD2451Component::read_frames_()
+void LD2451Component::process_frames_()
 {
   while (this->available()) {
     uint8_t uart_byte;
