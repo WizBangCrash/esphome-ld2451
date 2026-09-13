@@ -77,17 +77,11 @@ void LD2451Component::setup() {
 // Any control commands are marked as pending in their calls from the user
 // and processed within this loop.
 void LD2451Component::loop() {
-  // Process pending commands first
+  // Process pending commands
   this->action_commands_();
 
-  // TODO: Move the while loop inside of read_frame_()
-  // Now process reports frames and acknowledgements
-  while (this->available()) {
-    uint8_t b;
-    if (!this->read_byte(&b))
-      break;
-    this->read_frame_(b);
-  }
+  // Process command responses and report frames
+  this->read_frames_();
 
   // Some HLK-LD2451 units simply stop transmitting on UART while no target
   // is present, rather than continuously sending the zero-length "all
@@ -287,118 +281,124 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
 // ---------------------------------------------------------------------
 
 // Read rx data, build a frame and then process it
-bool LD2451Component::read_frame_(uint8_t uart_byte)
+void LD2451Component::read_frames_()
 {
-  switch (this->state_) {
-    uint8_t frame_byte;
-    // Decide whether this is a report frame or a command ACK frame, and switch to the appropriate state machine.
-    case ParseState::HEADER_1:
-      if (uart_byte == REPORT_HEADER[0])
-      {
-        this->state_ = ParseState::HEADER_2;
-        this->frame_type_ = FrameType::REPORT;
-      }
-      else if (uart_byte == CMD_HEADER[0])
-      {
-        this->state_ = ParseState::HEADER_2;
-        this->frame_type_ = FrameType::COMMAND;
-      }
-      ESP_LOGV(TAG, "Frame type: %u", this->frame_type_);
+  while (this->available()) {
+    uint8_t uart_byte;
+
+    if (!this->read_byte(&uart_byte))
       break;
 
-    case ParseState::HEADER_2:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[1] : REPORT_HEADER[1];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_3 : ParseState::HEADER_1;
-      break;
-
-    case ParseState::HEADER_3:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[2] : REPORT_HEADER[2];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_4 : ParseState::HEADER_1;
-      break;
-
-    case ParseState::HEADER_4:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[3] : REPORT_HEADER[3];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::LEN_LOW : ParseState::HEADER_1;
-      break;
-
-    case ParseState::LEN_LOW:
-      this->payload_len_ = uart_byte;
-      this->state_ = ParseState::LEN_HIGH;
-      break;
-
-    case ParseState::LEN_HIGH:
-      this->payload_len_ |= (static_cast<uint16_t>(uart_byte) << 8);
-      this->payload_.clear();
-      if (this->payload_len_ == 0)
-      {
-        // No target present - frame has no payload, go straight to footer.
-        this->state_ = ParseState::FOOTER_1;
-      }
-      else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5)
-      {
-        // Sanity check - malformed/garbage length, resync.
-        ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
-        this->state_ = ParseState::HEADER_1;
-      }
-      else
-      {
-        this->payload_.reserve(this->payload_len_);
-        this->state_ = ParseState::PAYLOAD;
-      }
-      break;
-
-    case ParseState::PAYLOAD:
-      this->payload_.push_back(uart_byte);
-      if (this->payload_.size() >= this->payload_len_)
-      {
-        this->state_ = ParseState::FOOTER_1;
-      }
-      break;
-
-    case ParseState::FOOTER_1:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[0] : REPORT_FOOTER[0];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
-      break;
-
-    case ParseState::FOOTER_2:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[1] : REPORT_FOOTER[1];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
-      break;
-
-    case ParseState::FOOTER_3:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[2] : REPORT_FOOTER[2];
-      this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
-      break;
-
-    case ParseState::FOOTER_4:
-      frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
-      this->state_ = ParseState::HEADER_1;
-      if (uart_byte != frame_byte)
-      {
-        ESP_LOGW(TAG, "Frame footer mismatch, dropping frame");
+    switch (this->state_) {
+      uint8_t frame_byte;
+      // Decide whether this is a report frame or a command ACK frame, and switch to the appropriate state machine.
+      case ParseState::HEADER_1:
+        if (uart_byte == REPORT_HEADER[0])
+        {
+          this->state_ = ParseState::HEADER_2;
+          this->frame_type_ = FrameType::REPORT;
+        }
+        else if (uart_byte == CMD_HEADER[0])
+        {
+          this->state_ = ParseState::HEADER_2;
+          this->frame_type_ = FrameType::COMMAND;
+        }
+        ESP_LOGV(TAG, "Frame type: %u", this->frame_type_);
         break;
-      }
-      if (this->frame_type_ == FrameType::COMMAND)
-      {
-        char hex_buf[this->payload_.size()*3];
-        ESP_LOGD(TAG, "Command frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
-        this->handle_command_response_frame_(this->payload_.data(), this->payload_.size());
-      } else {
 
-        char hex_buf[this->payload_.size()*3];
-        ESP_LOGD(TAG, "Report frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
-        this->handle_report_payload_(this->payload_.data(), this->payload_.size());
-      }
-      break;
+      case ParseState::HEADER_2:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[1] : REPORT_HEADER[1];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_3 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::HEADER_3:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[2] : REPORT_HEADER[2];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_4 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::HEADER_4:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[3] : REPORT_HEADER[3];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::LEN_LOW : ParseState::HEADER_1;
+        break;
+
+      case ParseState::LEN_LOW:
+        this->payload_len_ = uart_byte;
+        this->state_ = ParseState::LEN_HIGH;
+        break;
+
+      case ParseState::LEN_HIGH:
+        this->payload_len_ |= (static_cast<uint16_t>(uart_byte) << 8);
+        this->payload_.clear();
+        if (this->payload_len_ == 0)
+        {
+          // No target present - frame has no payload, go straight to footer.
+          this->state_ = ParseState::FOOTER_1;
+        }
+        else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5)
+        {
+          // Sanity check - malformed/garbage length, resync.
+          ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
+          this->state_ = ParseState::HEADER_1;
+        }
+        else
+        {
+          this->payload_.reserve(this->payload_len_);
+          this->state_ = ParseState::PAYLOAD;
+        }
+        break;
+
+      case ParseState::PAYLOAD:
+        this->payload_.push_back(uart_byte);
+        if (this->payload_.size() >= this->payload_len_)
+        {
+          this->state_ = ParseState::FOOTER_1;
+        }
+        break;
+
+      case ParseState::FOOTER_1:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[0] : REPORT_FOOTER[0];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_2:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[1] : REPORT_FOOTER[1];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_3:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[2] : REPORT_FOOTER[2];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
+        break;
+
+      case ParseState::FOOTER_4:
+        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
+        this->state_ = ParseState::HEADER_1;
+        if (uart_byte != frame_byte)
+        {
+          ESP_LOGW(TAG, "Frame footer mismatch, dropping frame");
+          break;
+        }
+        if (this->frame_type_ == FrameType::COMMAND)
+        {
+          char hex_buf[this->payload_.size()*3];
+          ESP_LOGD(TAG, "Command frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
+          this->handle_command_response_frame_(this->payload_.data(), this->payload_.size());
+        } else {
+
+          char hex_buf[this->payload_.size()*3];
+          ESP_LOGD(TAG, "Report frame: %s (%u)", format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()), this->payload_.size());
+          this->handle_report_frame_(this->payload_.data(), this->payload_.size());
+        }
+        break;
+    }
   }
-  return true;
 }
 
 // ---------------------------------------------------------------------
 // Report Frame Processing
 // ---------------------------------------------------------------------
 //
-void LD2451Component::handle_report_payload_(const uint8_t *data, uint16_t len) {
+void LD2451Component::handle_report_frame_(const uint8_t *data, uint16_t len) {
   this->last_report_ms_ = App.get_loop_component_start_time();
   this->idle_cleared_ = false;
 

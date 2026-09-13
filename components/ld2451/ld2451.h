@@ -118,7 +118,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
   static const uint32_t IDLE_TIMEOUT_MS = 1500;
 
   // ---- Command processing helpers ----
-  bool handle_command_response_frame_(const uint8_t *data, uint16_t len);
   void action_commands_();
   void new_write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
   void begin_config_();
@@ -142,10 +141,10 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // firmware_version_ (and the linked text_sensor, if any).
 
   // ---- report-frame streaming parser (runs continuously in loop()) ----
-  void process_byte_(uint8_t b);
-  bool read_frame_(uint8_t uart_byte);
-  void handle_report_payload_(const uint8_t *data, uint16_t len);
-  // Publishes target/count/presence state for `count` targets described by
+  void read_frames_();
+  void handle_report_frame_(const uint8_t *data, uint16_t len);
+  bool handle_command_response_frame_(const uint8_t *data, uint16_t len);
+// Publishes target/count/presence state for `count` targets described by
   // `data` (or count=0, data=nullptr to publish an all-clear state). Shared
   // by handle_report_payload_() (actual frames) and clear_all_targets_()
   // (idle timeout fallback, see loop()).
