@@ -125,6 +125,12 @@ class LD2451Component : public Component, public uart::UARTDevice {
   void end_config_();
   void restart_module_();
   void read_firmware_();
+  void get_sensitivity_();
+  void set_sensitivity_();
+  void get_target_detection_cfg_();
+  void set_target_detection_cfg_();
+  void factory_reset_();
+  void enable_bluetooth_();
 
   // ---- low level protocol helpers ----
   bool write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
@@ -173,10 +179,9 @@ class LD2451Component : public Component, public uart::UARTDevice {
   };
   FrameType frame_type_{FrameType::REPORT};
 
+  // TODO: reshuffle the bitmasks
   // Bitmask for the list of commnds pending for the next loop() call
   enum CommandFlags : uint16_t {
-    BEGIN_CONFIG          = 0x0001,
-    END_CONFIG            = 0x0002,
     READ_FIRMWARE         = 0x0004,
     SET_BAUDRATE          = 0x0008,
     FACTORY_RESET         = 0x0010,
@@ -186,7 +191,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
     GET_TARGET_DETECTION  = 0x0100,
     SET_SENSITIVITY       = 0x0200,
     GET_SENSITIVITY       = 0x0400,
-    WAIT_RESPONSE         = 0x8000,
   };
   uint16_t pending_commands_{0x00};
 

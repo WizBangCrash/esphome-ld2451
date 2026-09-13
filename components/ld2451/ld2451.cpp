@@ -58,7 +58,10 @@ static const uint8_t CMD_GET_SENSITIVITY = 0x13;
 void LD2451Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up LD2451...");
   this->drain_rx_();
-  this->pending_commands_ = CommandFlags::READ_FIRMWARE;
+  this->pending_commands_ =
+      CommandFlags::READ_FIRMWARE          |
+      CommandFlags::GET_TARGET_DETECTION   |
+      CommandFlags::GET_SENSITIVITY;
   // this->refresh_config();
   // Publish an initial "no target" state so sensors don't sit at NaN/unknown
   // until the first report frame arrives (or the idle timeout fires).
@@ -138,10 +141,24 @@ void LD2451Component::action_commands_()
       break;
 
     case CommandState::SEND_COMMAND:
-      if (this->pending_commands_ & CommandFlags::RESTART) {
+      // The order of this if statement is important e.g.
+      // The Bluetooth change needs to happen before the module restart
+      if (this->pending_commands_ & CommandFlags::FACTORY_RESET) {
+        factory_reset_();
+      } else if (this->pending_commands_ & CommandFlags::BLUETOOTH) {
+        enable_bluetooth_();
+      } else if (this->pending_commands_ & CommandFlags::RESTART) {
         restart_module_();
       } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
         read_firmware_();
+      } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
+        get_sensitivity_();
+      } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
+        get_target_detection_cfg_();
+      } else if (this->pending_commands_ & CommandFlags::SET_SENSITIVITY) {
+        set_sensitivity_();
+      } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
+        set_target_detection_cfg_();
       }
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
@@ -182,19 +199,30 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       this->command_state_ = CommandState::BEGIN_CONFIG;
       break;
 
+    case CMD_FACTORY_RESET:
+      this->pending_commands_ &= ~CommandFlags::FACTORY_RESET;
+      // No need for an END_CONFIG as I am reseting the module.
+      this->command_state_ = CommandState::BEGIN_CONFIG;
+      break;
+
     case CMD_RESTART:
       this->pending_commands_ &= ~CommandFlags::RESTART;
       // No need for an END_CONFIG as I am reseting the module.
       this->command_state_ = CommandState::BEGIN_CONFIG;
       break;
 
+    case CMD_BLUETOOTH:
+      this->pending_commands_ &= ~CommandFlags::BLUETOOTH;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      break;
+
     case CMD_READ_FIRMWARE:
       this->pending_commands_ &= ~CommandFlags::READ_FIRMWARE;
       this->command_state_ =
         this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
-      uint16_t fw_type = (data[4] | data[5] << 8);
-      if (fw_type != 0x2451) {
-        ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%04X (expected 0x2451)", fw_type);
+      if (data[5] != 0x24 && data[4] != 0x51) {   // firmware type 0x2451
+        ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%02X%02X (expected 0x2451)", data[5], data[4]);
       }
 
       char buf[32];
@@ -214,6 +242,41 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
     }
 #endif
       break;
+
+    case CMD_GET_SENSITIVITY:
+      this->pending_commands_ &= ~CommandFlags::GET_SENSITIVITY;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      // Process the data
+      this->cfg_multi_trigger_ = data[4] == 0x01;
+      this->cfg_snr_threshold_ = data[5];
+      // TODO: Need to publish sensitivity state here too
+      break;
+
+    case CMD_SET_SENSITIVITY:
+      this->pending_commands_ &= ~CommandFlags::SET_SENSITIVITY;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      break;
+
+    case CMD_GET_TARGET_DETECTION_CFG:
+      this->pending_commands_ &= ~CommandFlags::GET_TARGET_DETECTION;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      // Process the data
+      this->cfg_max_distance_ = data[4];
+      this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
+      this->cfg_min_speed_ = data[6];
+      this->cfg_no_target_delay_ = data[7];
+      // TODO: Need to publish target detection state here too
+      break;
+
+    case CMD_SET_TARGET_DETECTION_CFG:
+      this->pending_commands_ &= ~CommandFlags::SET_TARGET_DETECTION;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      break;
+
   }
   return true;
 }
@@ -371,7 +434,10 @@ void LD2451Component::new_write_command_frame_(uint8_t command, const uint8_t *v
   }
   this->write_array(CMD_FOOTER, 4);
   this->flush();
-  ESP_LOGD(TAG, "Sent command: %02X", command);
+
+  char hex[value_len * 3 + 1];
+  ESP_LOGD(TAG, "Sent command: %02X, Data: %s (%d)", command,
+    format_hex_pretty_to(hex, sizeof(hex), value, value_len), value_len);
 }
 
 void LD2451Component::begin_config_() {
@@ -383,12 +449,51 @@ void LD2451Component::end_config_() {
   this->new_write_command_frame_(CMD_END_CONFIG, nullptr, 0);
 }
 
+void LD2451Component::factory_reset_() {
+  this->new_write_command_frame_(CMD_FACTORY_RESET, nullptr, 0);
+}
+
 void LD2451Component::restart_module_() {
   this->new_write_command_frame_(CMD_RESTART, nullptr, 0);
 }
 
 void LD2451Component::read_firmware_() {
   this->new_write_command_frame_(CMD_READ_FIRMWARE, nullptr, 0);
+}
+
+void LD2451Component::get_sensitivity_() {
+  this->new_write_command_frame_(CMD_GET_SENSITIVITY, nullptr, 0);
+}
+
+// TODO: cfg_multi_trigger should be a number between 0 and 10. Not a boolean!
+void LD2451Component::set_sensitivity_() {
+  const uint8_t val[4] = {
+    static_cast<uint8_t>(this->cfg_multi_trigger_ ? 1 : 0),
+    this->cfg_snr_threshold_,
+    0x00, 0x00
+  };
+  this->new_write_command_frame_(CMD_SET_SENSITIVITY, val, sizeof(val));
+}
+
+void LD2451Component::get_target_detection_cfg_() {
+  this->new_write_command_frame_(CMD_GET_TARGET_DETECTION_CFG, nullptr, 0);
+}
+
+void LD2451Component::set_target_detection_cfg_() {
+  const uint8_t val[4] = {
+    this->cfg_max_distance_,
+    static_cast<uint8_t>(this->cfg_direction_),
+    this->cfg_min_speed_,
+    this->cfg_no_target_delay_};
+  this->new_write_command_frame_(CMD_SET_TARGET_DETECTION_CFG, val, sizeof(val));
+}
+
+void LD2451Component::enable_bluetooth_() {
+  const uint8_t val[2] = {
+    static_cast<uint8_t>(this->cfg_bluetooth_enabled_ ? 1 : 0),
+    0x00
+  };
+  this->new_write_command_frame_(CMD_BLUETOOTH, val, sizeof(val));
 }
 
 // ---------------------------------------------------------------------
@@ -621,141 +726,69 @@ bool LD2451Component::end_config_old_() {
 
 void LD2451Component::refresh_config() {
 
-  this->pending_commands_ |= CommandFlags::READ_FIRMWARE;
+  this->pending_commands_ |=
+      CommandFlags::READ_FIRMWARE          |
+      CommandFlags::GET_TARGET_DETECTION   |
+      CommandFlags::GET_SENSITIVITY;
 
-  // Need to figure out how to schedule a dump_config() int he loop().
+  // TODO: Need to figure out how to schedule a dump_config() in the loop().
 //  this->dump_config();
-
-#ifdef OLDCODE
-  if (!this->enable_config_old_()) {
-    ESP_LOGW(TAG, "refresh_config: failed to enter config mode");
-    return;
-  }
-
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_GET_TARGET_DETECTION_CFG, nullptr, 0, resp) && resp.size() >= 4) {
-    this->cfg_max_distance_ = resp[0];
-    this->cfg_direction_ = static_cast<LD2451Direction>(resp[1]);
-    this->cfg_min_speed_ = resp[2];
-    this->cfg_no_target_delay_ = resp[3];
-  } else {
-    ESP_LOGW(TAG, "refresh_config: failed to read target detection config");
-  }
-
-  resp.clear();
-  if (this->send_command_old_(CMD_GET_SENSITIVITY, nullptr, 0, resp) && resp.size() >= 2) {
-    this->cfg_multi_trigger_ = resp[0] == 0x01;
-    this->cfg_snr_threshold_ = resp[1];
-  } else {
-    ESP_LOGW(TAG, "refresh_config: failed to read sensitivity config");
-  }
-
-  this->end_config_old_();
-  this->dump_config();
-#endif
 }
 
+// TODO: Update cfg_max_distance_ after determining command was successful
 void LD2451Component::set_max_distance(uint8_t meters) {
   if (meters < 10)
     meters = 10;
   if (meters > 100)
     meters = 100;
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {meters, static_cast<uint8_t>(this->cfg_direction_), this->cfg_min_speed_,
-                           this->cfg_no_target_delay_};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_TARGET_DETECTION_CFG, val, 4, resp))
-    this->cfg_max_distance_ = meters;
-  this->end_config_old_();
+  this->cfg_max_distance_ = meters;
+  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
 }
 
+// TODO: Update cfg_min_speed_ after determining command was successful
 void LD2451Component::set_min_speed(uint8_t kmh) {
   if (kmh > 0x78)
     kmh = 0x78;
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {this->cfg_max_distance_, static_cast<uint8_t>(this->cfg_direction_), kmh,
-                           this->cfg_no_target_delay_};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_TARGET_DETECTION_CFG, val, 4, resp))
-    this->cfg_min_speed_ = kmh;
-  this->end_config_old_();
+  this->cfg_min_speed_ = kmh;
+  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
 }
 
+// TODO: Update cfg_no_target_delay_ after determining command was successful
 void LD2451Component::set_no_target_delay(uint8_t seconds) {
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {this->cfg_max_distance_, static_cast<uint8_t>(this->cfg_direction_), this->cfg_min_speed_,
-                           seconds};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_TARGET_DETECTION_CFG, val, 4, resp))
-    this->cfg_no_target_delay_ = seconds;
-  this->end_config_old_();
+  this->cfg_no_target_delay_ = seconds;
+  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
 }
 
+// TODO: Update cfg_direction_ after determining command was successful
 void LD2451Component::set_detection_direction(LD2451Direction direction) {
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {this->cfg_max_distance_, static_cast<uint8_t>(direction), this->cfg_min_speed_,
-                           this->cfg_no_target_delay_};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_TARGET_DETECTION_CFG, val, 4, resp))
-    this->cfg_direction_ = direction;
-  this->end_config_old_();
+  this->cfg_direction_ = direction;
+  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
 }
 
+// TODO: Update cfg_snr_threshold_ after determining command was successful
 void LD2451Component::set_snr_threshold(uint8_t snr) {
   if (snr < 3)
     snr = 3;
   if (snr > 8)
     snr = 8;
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {static_cast<uint8_t>(this->cfg_multi_trigger_ ? 1 : 0), snr, 0x00, 0x00};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_SENSITIVITY, val, 4, resp))
-    this->cfg_snr_threshold_ = snr;
-  this->end_config_old_();
+  this->cfg_snr_threshold_ = snr;
+  this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
 }
 
+// TODO: Update cfg_multi_trigger_ after determining command was successful
 void LD2451Component::set_multi_trigger(bool require_multiple) {
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[4] = {static_cast<uint8_t>(require_multiple ? 1 : 0), this->cfg_snr_threshold_, 0x00, 0x00};
-  std::vector<uint8_t> resp;
-  if (this->send_command_old_(CMD_SET_SENSITIVITY, val, 4, resp))
-    this->cfg_multi_trigger_ = require_multiple;
-  this->end_config_old_();
+  this->cfg_multi_trigger_ = require_multiple;
+  this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
 }
 
 void LD2451Component::set_bluetooth_enabled(bool enable) {
-  if (!this->enable_config_old_())
-    return;
-  const uint8_t val[2] = {static_cast<uint8_t>(enable ? 1 : 0), 0x00};
-  std::vector<uint8_t> resp;
-  bool ok = this->send_command_old_(CMD_BLUETOOTH, val, 2, resp);
-  this->end_config_old_();
-  if (!ok) {
-    ESP_LOGW(TAG, "set_bluetooth_enabled(%s): command failed - command word 0xA4 is inferred from the LD2410's "
-                  "protocol, not confirmed against an LD2451-specific datasheet excerpt, so this may not be "
-                  "the right command for your unit",
-             ONOFF(enable));
-    return;
-  }
-  this->cfg_bluetooth_enabled_ = enable;
-  // On the LD2410 (same command family), a Bluetooth on/off change only
-  // takes effect after the radar restarts - assume the same here.
   ESP_LOGI(TAG, "Bluetooth %s - restarting module for it to take effect", ONOFF(enable));
-  this->restart_module();
+  this->pending_commands_ |= CommandFlags::BLUETOOTH;
+  this->pending_commands_ |= CommandFlags::RESTART;
 }
 
 void LD2451Component::factory_reset() {
-  if (!this->enable_config_old_())
-    return;
-  std::vector<uint8_t> resp;
-  this->send_command_old_(CMD_FACTORY_RESET, nullptr, 0, resp);
-  this->end_config_old_();
+  this->pending_commands_ |= CommandFlags::FACTORY_RESET;
   ESP_LOGI(TAG, "Factory reset requested - restart the module for it to take effect");
 }
 
