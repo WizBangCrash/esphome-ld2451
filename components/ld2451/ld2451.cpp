@@ -124,7 +124,7 @@ void LD2451Component::action_commands_()
     case CommandState::WAIT_RESPONSE:
       if ((App.get_loop_component_start_time() - this->last_action_ms_) > COMMAND_TIMEOUT_MS) {
         this->command_state_ = CommandState::BEGIN_CONFIG;
-        ESP_LOGW(TAG, "Pending commands timed out: %02X", this->pending_commands_);
+        ESP_LOGW(TAG, "Command (%02X) response timed out: restarting", this->pending_commands_);
       }
       break;
 
@@ -136,7 +136,7 @@ void LD2451Component::action_commands_()
       break;
 
     case CommandState::SEND_COMMAND:
-      // The order of this if statement is important e.g.
+      // The order of the if statement is important e.g.
       // The Bluetooth change needs to happen before the module restart
       if (this->pending_commands_ & CommandFlags::FACTORY_RESET) {
         factory_reset_();
@@ -680,6 +680,7 @@ void LD2451Component::set_multi_trigger(bool require_multiple) {
 
 void LD2451Component::set_bluetooth_enable(bool enable) {
   ESP_LOGI(TAG, "Bluetooth %s - restarting module for it to take effect", ONOFF(enable));
+  this->cfg_bluetooth_enabled_ = enable;
   this->pending_commands_ |= CommandFlags::BLUETOOTH;
   this->pending_commands_ |= CommandFlags::RESTART;
 }
