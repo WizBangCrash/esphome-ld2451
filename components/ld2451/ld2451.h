@@ -27,7 +27,7 @@ class Sensor;
 namespace ld2451 {
 
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
-static const uint8_t LD2451_MAX_TARGETS = 5;
+static constexpr uint8_t LD2451_MAX_TARGETS = 5;
 
 enum class LD2451Direction : uint8_t {
   AWAY = 0x00,     // target moving away from the radar
@@ -110,11 +110,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
  protected:
-  // How long to wait, with no report frame received at all, before treating
-  // the radar's silence as "no target present" (see loop()). Some units
-  // stop transmitting entirely rather than sending an explicit zero-length
-  // report frame when no target is in view.
-  static const uint32_t IDLE_TIMEOUT_MS = 1500;
 
   // ---- Command processing helpers ----
   void action_commands_();

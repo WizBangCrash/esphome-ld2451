@@ -23,6 +23,10 @@
 //                                  direction(1, 0=away 1=toward) speed(1, km/h) snr(1)
 // -----------------------------------------------------------------------
 
+// TODO: Review the text above this re:data format
+// TODO: Implement a Get MAC Address command for the Bluetooth
+// TODO: Make sure the Bluetooth enabled status survives reboot/power-off
+
 namespace esphome {
 namespace ld2451 {
 
@@ -51,6 +55,11 @@ static constexpr uint8_t CMD_GET_TARGET_DETECTION_CFG = 0x12;
 static constexpr uint8_t CMD_SET_SENSITIVITY = 0x03;
 static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 
+// How long to wait, with no report frame received at all, before treating
+// the radar's silence as "no target present" (see loop()). Some units
+// stop transmitting entirely rather than sending an explicit zero-length
+// report frame when no target is in view.
+static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
 
 static bool time_since(uint32_t last_action_ms, uint32_t timeout_ms) {
@@ -193,6 +202,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
   const uint16_t result = (data[2] | data[3] << 8);
 
   // Check for command failure - result non-zero
+  // Commands keep retrying until they are successful
   if (result) {
     ESP_LOGW(TAG, "Command %02X failed. Result: %04X", command, result);
     return false;
