@@ -124,6 +124,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
   void begin_config_();
   void end_config_();
   void restart_module_();
+  void read_firmware_();
 
   // ---- low level protocol helpers ----
   bool write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
@@ -182,7 +183,9 @@ class LD2451Component : public Component, public uart::UARTDevice {
     RESTART               = 0x0020,
     BLUETOOTH             = 0x0040,
     SET_TARGET_DETECTION  = 0x0080,
-    SET_SENSITIVITY       = 0x0100,
+    GET_TARGET_DETECTION  = 0x0100,
+    SET_SENSITIVITY       = 0x0200,
+    GET_SENSITIVITY       = 0x0400,
     WAIT_RESPONSE         = 0x8000,
   };
   uint16_t pending_commands_{0x00};

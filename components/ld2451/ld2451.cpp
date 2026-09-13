@@ -58,7 +58,7 @@ static const uint8_t CMD_GET_SENSITIVITY = 0x13;
 void LD2451Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up LD2451...");
   this->drain_rx_();
-  this->restart_module();
+  this->pending_commands_ = CommandFlags::READ_FIRMWARE;
   // this->refresh_config();
   // Publish an initial "no target" state so sensors don't sit at NaN/unknown
   // until the first report frame arrives (or the idle timeout fires).
@@ -140,6 +140,8 @@ void LD2451Component::action_commands_()
     case CommandState::SEND_COMMAND:
       if (this->pending_commands_ & CommandFlags::RESTART) {
         restart_module_();
+      } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
+        read_firmware_();
       }
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
@@ -184,6 +186,33 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       this->pending_commands_ &= ~CommandFlags::RESTART;
       // No need for an END_CONFIG as I am reseting the module.
       this->command_state_ = CommandState::BEGIN_CONFIG;
+      break;
+
+    case CMD_READ_FIRMWARE:
+      this->pending_commands_ &= ~CommandFlags::READ_FIRMWARE;
+      this->command_state_ =
+        this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      uint16_t fw_type = (data[4] | data[5] << 8);
+      if (fw_type != 0x2451) {
+        ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%04X (expected 0x2451)", fw_type);
+      }
+
+      char buf[32];
+      // Mirrors the "Vmajor_hi.major_lo.minor" style version string used in the
+      // datasheet/app (e.g. V1.01.24051510). Byte order verified against a
+      // working third-party implementation, but the exact zero-padding/format
+      // has not been cross-checked against a real module - if this looks off
+      // against what the HLKRadarTool app reports for your unit, the raw bytes
+      // are logged below so the format is easy to correct.
+      snprintf(buf, sizeof(buf), "V%u.%02u.%02u%02u%02u%02u", data[7], data[6], data[11], data[10], data[9], data[8]);
+      this->firmware_version_ = buf;
+
+      ESP_LOGD(TAG, "Firmware version raw bytes: %02X %02X %02X %02X %02X %02X %02X %02X", data[4], data[5], data[7], data[6], data[11], data[10], data[9], data[8]);
+#ifdef USE_TEXT_SENSOR
+    if (this->firmware_version_text_sensor_ != nullptr) {
+      this->firmware_version_text_sensor_->publish_state(this->firmware_version_);
+    }
+#endif
       break;
   }
   return true;
@@ -586,52 +615,22 @@ bool LD2451Component::end_config_old_() {
   return this->send_command_old_(CMD_END_CONFIG, nullptr, 0, resp);
 }
 
-void LD2451Component::query_firmware_version_() {
-  // Response payload (after status, which send_command_old/read_ack_frame_
-  // already stripped and validated): 2-byte firmware type (LE, should be
-  // 0x2451) + 2-byte major version + 4-byte minor version.
-  std::vector<uint8_t> resp;
-  if (!this->send_command_old_(CMD_READ_FIRMWARE, nullptr, 0, resp) || resp.size() < 8) {
-    ESP_LOGW(TAG, "query_firmware_version_: failed to read firmware version");
-    return;
-  }
-
-  uint16_t fw_type = resp[0] | (static_cast<uint16_t>(resp[1]) << 8);
-  if (fw_type != 0x2451) {
-    ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%04X (expected 0x2451)", fw_type);
-  }
-
-  char buf[32];
-  // Mirrors the "Vmajor_hi.major_lo.minor" style version string used in the
-  // datasheet/app (e.g. V1.01.24051510). Byte order verified against a
-  // working third-party implementation, but the exact zero-padding/format
-  // has not been cross-checked against a real module - if this looks off
-  // against what the HLKRadarTool app reports for your unit, the raw bytes
-  // are logged below so the format is easy to correct.
-  snprintf(buf, sizeof(buf), "V%u.%02u.%02u%02u%02u%02u", resp[3], resp[2], resp[7], resp[6], resp[5], resp[4]);
-  this->firmware_version_ = buf;
-
-  ESP_LOGD(TAG, "Firmware version raw bytes: %02X %02X %02X %02X %02X %02X %02X %02X", resp[0], resp[1], resp[2],
-           resp[3], resp[4], resp[5], resp[6], resp[7]);
-
-#ifdef USE_TEXT_SENSOR
-  if (this->firmware_version_text_sensor_ != nullptr) {
-    this->firmware_version_text_sensor_->publish_state(this->firmware_version_);
-  }
-#endif
-}
-
 // ---------------------------------------------------------------------
 // Public configuration API
 // ---------------------------------------------------------------------
 
 void LD2451Component::refresh_config() {
+
+  this->pending_commands_ |= CommandFlags::READ_FIRMWARE;
+
+  // Need to figure out how to schedule a dump_config() int he loop().
+//  this->dump_config();
+
+#ifdef OLDCODE
   if (!this->enable_config_old_()) {
     ESP_LOGW(TAG, "refresh_config: failed to enter config mode");
     return;
   }
-
-  this->query_firmware_version_();
 
   std::vector<uint8_t> resp;
   if (this->send_command_old_(CMD_GET_TARGET_DETECTION_CFG, nullptr, 0, resp) && resp.size() >= 4) {
@@ -653,6 +652,7 @@ void LD2451Component::refresh_config() {
 
   this->end_config_old_();
   this->dump_config();
+#endif
 }
 
 void LD2451Component::set_max_distance(uint8_t meters) {
