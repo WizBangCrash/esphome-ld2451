@@ -51,6 +51,12 @@ static constexpr uint8_t CMD_GET_TARGET_DETECTION_CFG = 0x12;
 static constexpr uint8_t CMD_SET_SENSITIVITY = 0x03;
 static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 
+static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
+
+static bool time_since(uint32_t last_action_ms, uint32_t timeout_ms) {
+  return (App.get_loop_component_start_time() - last_action_ms) > timeout_ms;
+}
+
 // ---------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------
@@ -61,7 +67,8 @@ void LD2451Component::setup() {
   this->pending_commands_ =
       CommandFlags::READ_FIRMWARE          |
       CommandFlags::GET_TARGET_DETECTION   |
-      CommandFlags::GET_SENSITIVITY;
+      CommandFlags::GET_SENSITIVITY        |
+      CommandFlags::DUMP_CONFIG;
   // this->refresh_config();
   // Publish an initial "no target" state so sensors don't sit at NaN/unknown
   // until the first report frame arrives (or the idle timeout fires).
@@ -122,9 +129,9 @@ void LD2451Component::action_commands_()
     // Wait for a response from command action
     // Timeout if no response recieved within defined period
     case CommandState::WAIT_RESPONSE:
-      if ((App.get_loop_component_start_time() - this->last_action_ms_) > COMMAND_TIMEOUT_MS) {
+      if (time_since(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
         this->command_state_ = CommandState::BEGIN_CONFIG;
-        ESP_LOGW(TAG, "Command (%02X) response timed out: restarting", this->pending_commands_);
+        ESP_LOGW(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
       }
       break;
 
@@ -154,6 +161,14 @@ void LD2451Component::action_commands_()
         set_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
         set_target_detection_cfg_();
+      } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
+        if (time_since(this->last_action_ms_, 100)) {
+          dump_config();
+          this->pending_commands_ &= ~CommandFlags::DUMP_CONFIG;
+          this->command_state_ =
+            this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+        }
+        break;
       }
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
@@ -502,6 +517,15 @@ void LD2451Component::enable_bluetooth_() {
 // ---------------------------------------------------------------------
 //
 
+static const char *direction_to_string(LD2451Direction direction) {
+  switch (direction) {
+    case LD2451Direction::AWAY: return "Away";
+    case LD2451Direction::TOWARD: return "Towards";
+    case LD2451Direction::ALL: return "All";
+  }
+  return "Unknown";
+}
+
 void LD2451Component::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "LD2451:\n"
@@ -510,7 +534,7 @@ void LD2451Component::dump_config() {
                 "  Max distance: %u m\n"
                 "  Min speed: %u km/h\n"
                 "  No-target delay: %u s\n"
-                "  Detection direction: %u\n"
+                "  Detection direction: %s\n"
                 "  SNR threshold: %u\n"
                 "  Multi-trigger required: %s\n"
                 "  Bluetooth: %s (assumed state - not read back from radar)",
@@ -519,7 +543,7 @@ void LD2451Component::dump_config() {
                 this->cfg_max_distance_,
                 this->cfg_min_speed_,
                 this->cfg_no_target_delay_,
-                (unsigned)this->cfg_direction_,
+                direction_to_string(this->cfg_direction_),
                 this->cfg_snr_threshold_,
                 YESNO(this->cfg_multi_trigger_),
                 ONOFF(this->cfg_bluetooth_enabled_)
@@ -626,10 +650,8 @@ void LD2451Component::refresh_config() {
   this->pending_commands_ |=
       CommandFlags::READ_FIRMWARE          |
       CommandFlags::GET_TARGET_DETECTION   |
-      CommandFlags::GET_SENSITIVITY;
-
-  // TODO: Need to figure out how to schedule a dump_config() in the loop().
-//  this->dump_config();
+      CommandFlags::GET_SENSITIVITY        |
+      CommandFlags::DUMP_CONFIG;
 }
 
 // TODO: Update cfg_max_distance_ after determining command was successful

@@ -110,7 +110,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
  protected:
-  static const uint32_t COMMAND_TIMEOUT_MS = 500;
   // How long to wait, with no report frame received at all, before treating
   // the radar's silence as "no target present" (see loop()). Some units
   // stop transmitting entirely rather than sending an explicit zero-length
@@ -184,6 +183,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
     GET_TARGET_DETECTION  = 0x0040,
     SET_SENSITIVITY       = 0x0080,
     GET_SENSITIVITY       = 0x0100,
+    DUMP_CONFIG           = 0x0200,
   };
   uint16_t pending_commands_{0x00};
 
@@ -192,7 +192,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
     BEGIN_CONFIG,
     END_CONFIG,
     SEND_COMMAND,
-    WAIT_RESPONSE
+    WAIT_RESPONSE,
   };
   CommandState command_state_{CommandState::BEGIN_CONFIG};
   // Time last configuration session started
