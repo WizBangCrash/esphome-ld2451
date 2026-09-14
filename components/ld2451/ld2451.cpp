@@ -63,6 +63,14 @@ static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
 
+// Upper bound on time spent draining the UART buffer in a single
+// process_frames_() call, so a burst/backlog of report frames can't hold up
+// the rest of loop() past ESPHome's non-blocking guidance. Parser state is
+// resumable, so an early exit here just continues on the next loop() call.
+static constexpr uint32_t FRAME_PROCESSING_BUDGET_US = 5000;
+
+// Simple check to see if the loop start time has exceeded the allowed
+// time since a saved time value.
 static bool wait_time_exceeded(uint32_t last_action_ms, uint32_t timeout_ms) {
   return (App.get_loop_component_start_time() - last_action_ms) > timeout_ms;
 }
@@ -105,7 +113,7 @@ void LD2451Component::loop() {
   // If we haven't seen *any* report frame in a while, treat that silence
   // itself as "no target" and clear state once.
   if (this->last_report_ms_ != 0 && !this->idle_cleared_ &&
-      (App.get_loop_component_start_time() - this->last_report_ms_) > IDLE_TIMEOUT_MS) {
+      !wait_time_exceeded(this->last_report_ms_, IDLE_TIMEOUT_MS)) {
     this->clear_all_targets_();
     this->idle_cleared_ = true;
   }
@@ -142,7 +150,7 @@ void LD2451Component::action_commands_() {
     case CommandState::BEGIN_CONFIG:
       if (!this->pending_commands_)
         break;  // exit if all commands complete
-      begin_config_();
+      this->begin_config_();
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
       break;
@@ -151,24 +159,24 @@ void LD2451Component::action_commands_() {
       // The order of the if statement is important e.g.
       // The Bluetooth change needs to happen before the module restart
       if (this->pending_commands_ & CommandFlags::FACTORY_RESET) {
-        factory_reset_();
+        this->factory_reset_();
       } else if (this->pending_commands_ & CommandFlags::BLUETOOTH) {
-        enable_bluetooth_();
+        this->enable_bluetooth_();
       } else if (this->pending_commands_ & CommandFlags::RESTART) {
-        restart_module_();
+        this->restart_module_();
       } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
-        read_firmware_();
+        this->read_firmware_();
       } else if (this->pending_commands_ & CommandFlags::SET_SENSITIVITY) {
-        set_sensitivity_();
+        this->set_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
-        set_target_detection_cfg_();
+        this->set_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
-        get_sensitivity_();
+        this->get_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
-        get_target_detection_cfg_();
+        this->get_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
         if (wait_time_exceeded(this->last_action_ms_, 100)) {
-          dump_config();
+          this->dump_config();
           this->pending_commands_ &= ~CommandFlags::DUMP_CONFIG;
           this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
         }
@@ -179,7 +187,7 @@ void LD2451Component::action_commands_() {
       break;
 
     case CommandState::END_CONFIG:
-      end_config_();
+      this->end_config_();
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
       break;
@@ -316,7 +324,13 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
 
 // Read rx data, build a frame and then process it
 void LD2451Component::process_frames_() {
+  const uint32_t start_us = micros();
   while (this->available()) {
+    if (micros() - start_us > FRAME_PROCESSING_BUDGET_US) {
+      ESP_LOGV(TAG, "process_frames_: budget exceeded, resuming next loop()");
+      break;
+    }
+
     uint8_t uart_byte;
 
     if (!this->read_byte(&uart_byte))
