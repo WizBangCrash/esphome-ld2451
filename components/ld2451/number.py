@@ -7,6 +7,7 @@ from esphome.const import (
     UNIT_KILOMETER_PER_HOUR,
     UNIT_METER,
     UNIT_SECOND,
+    ICON_TIMER,
 )
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
@@ -21,6 +22,9 @@ CONF_MIN_SPEED = "min_speed"
 CONF_NO_TARGET_DELAY = "no_target_delay"
 CONF_SNR_THRESHOLD = "snr_threshold"
 
+ICON_ARROW_EXPAND_HORIZONTAL = "mdi:arrow-expand-horizontal"
+ICON_SPEED_SLOW = "mdi:speedometer-slow"
+
 # (yaml key, unit, min, max, step, icon, field enum member, hub setter for state sync)
 NUMBERS = {
     CONF_MAX_DISTANCE: (
@@ -28,7 +32,7 @@ NUMBERS = {
         10,
         100,
         1,
-        "mdi:arrow-expand-horizontal",
+        ICON_ARROW_EXPAND_HORIZONTAL,
         "MAX_DISTANCE",
         "set_max_distance_number",
     ),
@@ -37,7 +41,7 @@ NUMBERS = {
         0,
         120,
         1,
-        "mdi:speedometer-slow",
+        ICON_SPEED_SLOW,
         "MIN_SPEED",
         "set_min_speed_number",
     ),
@@ -46,7 +50,7 @@ NUMBERS = {
         0,
         30,
         1,
-        "mdi:timer-outline",
+        ICON_TIMER,
         "NO_TARGET_DELAY",
         "set_no_target_delay_number",
     ),

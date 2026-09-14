@@ -14,13 +14,15 @@ LD2451DirectionSelect = ld2451_ns.class_(
 CONF_DETECTION_DIRECTION = "detection_direction"
 OPTIONS = ["Away", "Towards", "All"]
 
+ICON_SWAP_HORIZONTAL = "mdi:swap-horizontal"
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_DETECTION_DIRECTION): select.select_schema(
             LD2451DirectionSelect,
-            icon="mdi:swap-horizontal",
+            icon=ICON_SWAP_HORIZONTAL,
             entity_category=ENTITY_CATEGORY_CONFIG,
         ),
     }

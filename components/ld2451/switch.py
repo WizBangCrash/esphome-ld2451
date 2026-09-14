@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import switch
-from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG
+from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG, ICON_BLUETOOTH
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -17,18 +17,20 @@ LD2451BluetoothSwitch = ld2451_ns.class_(
 CONF_REQUIRE_MULTIPLE_DETECTIONS = "require_multiple_detections"
 CONF_BLUETOOTH = "bluetooth"
 
+ICON_FILTER_CHECK_OUTLINE = "mdi:filter-check-outline"
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_REQUIRE_MULTIPLE_DETECTIONS): switch.switch_schema(
             LD2451MultiTriggerSwitch,
-            icon="mdi:filter-check-outline",
+            icon=ICON_FILTER_CHECK_OUTLINE,
             entity_category=ENTITY_CATEGORY_CONFIG,
         ),
         cv.Optional(CONF_BLUETOOTH): switch.switch_schema(
             LD2451BluetoothSwitch,
-            icon="mdi:bluetooth",
+            icon=ICON_BLUETOOTH,
             entity_category=ENTITY_CATEGORY_CONFIG,
         ),
     }
