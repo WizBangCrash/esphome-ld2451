@@ -44,7 +44,7 @@ struct LD2451Target {
   uint8_t distance{0};  // meters
   LD2451Direction direction{LD2451Direction::AWAY};
   uint8_t speed{0};  // km/h
-  uint8_t snr{0};    // signal to noise ratio, 0-255
+  uint8_t snr{0};    // signal to noise ratio, 3-8
 };
 
 class LD2451Component final : public Component, public uart::UARTDevice {
