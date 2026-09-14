@@ -113,7 +113,8 @@ void LD2451Component::loop() {
   // If we haven't seen *any* report frame in a while, treat that silence
   // itself as "no target" and clear state once.
   if (this->last_report_ms_ != 0 && !this->idle_cleared_ &&
-      !wait_time_exceeded(this->last_report_ms_, IDLE_TIMEOUT_MS)) {
+      wait_time_exceeded(this->last_report_ms_, IDLE_TIMEOUT_MS)) {
+    ESP_LOGD(TAG, "No report frames. Clear all targets");
     this->clear_all_targets_();
     this->idle_cleared_ = true;
   }
@@ -425,7 +426,7 @@ void LD2451Component::process_frames_() {
           this->handle_command_response_frame_(this->payload_.begin(), this->payload_.size());
         } else {
           char hex_buf[this->payload_.size() * 3];
-          ESP_LOGV(TAG, "Report frame: %s (%u)",
+          ESP_LOGD(TAG, "Report frame: %s (%u)",
                    format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
                    this->payload_.size());
           this->handle_report_frame_(this->payload_.begin(), this->payload_.size());
