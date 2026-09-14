@@ -29,10 +29,6 @@
 //                                  direction(1, 0=away 1=toward) speed(1, km/h) snr(1)
 // -----------------------------------------------------------------------
 
-// TODO: Review the text above this re:data format
-// TODO: Implement a Get MAC Address command for the Bluetooth
-// TODO: Make sure the Bluetooth enabled status survives reboot/power-off
-
 namespace esphome::ld2451 {
 
 static const char *const TAG = "ld2451";
