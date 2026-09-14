@@ -32,7 +32,7 @@
 namespace esphome::ld2451 {
 
 static const char *const TAG = "ld2451";
-static const char *const COMPONENT_VERSION = "2.0.0";
+static const char *const COMPONENT_VERSION = "2.0.1dev";
 
 static constexpr uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
 static constexpr uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
