@@ -1,5 +1,8 @@
 #include "ld2451.h"
 #include <cstring>
+#ifdef USE_SELECT
+#include "ld2451_select.h"
+#endif
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -277,7 +280,12 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
       this->cfg_min_speed_ = data[6];
       this->cfg_no_target_delay_ = data[7];
-      // TODO: Need to publish target detection state here too
+      // TODO: Need to publish max_distance/min_speed/no_target_delay state here too
+#ifdef USE_SELECT
+      if (this->direction_select_ != nullptr) {
+        this->direction_select_->publish_direction(this->cfg_direction_);
+      }
+#endif
       break;
 
     case CMD_SET_TARGET_DETECTION_CFG:

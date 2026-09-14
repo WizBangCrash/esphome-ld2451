@@ -24,6 +24,10 @@ class Sensor;
 
 namespace esphome::ld2451 {
 
+// Defined in ld2451_select.h, which includes this header - forward-declared
+// here so LD2451Component can hold a pointer to it.
+class LD2451DirectionSelect;
+
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
 static constexpr uint8_t LD2451_MAX_TARGETS = 5;
 
@@ -94,6 +98,10 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_TEXT_SENSOR
   void set_firmware_version_text_sensor(text_sensor::TextSensor *s) { firmware_version_text_sensor_ = s; }
+#endif
+
+#ifdef USE_SELECT
+  void set_direction_select(LD2451DirectionSelect *s) { direction_select_ = s; }
 #endif
 
   // Used by number/select/switch platforms to know the config values last
@@ -222,6 +230,10 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
+#endif
+
+#ifdef USE_SELECT
+  LD2451DirectionSelect *direction_select_{nullptr};
 #endif
 };
 

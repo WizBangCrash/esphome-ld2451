@@ -34,3 +34,4 @@ async def to_code(config):
         s = await select.new_select(direction_config, options=OPTIONS)
         await cg.register_component(s, direction_config)
         cg.add(s.set_parent(var))
+        cg.add(var.set_direction_select(s))
