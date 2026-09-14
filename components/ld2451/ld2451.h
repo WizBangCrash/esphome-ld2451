@@ -188,6 +188,10 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   };
   uint16_t pending_commands_{0x00};
 
+  // Clears `flag` from pending_commands_ and advances command_state_ to the
+  // next pending command, or END_CONFIG if none remain.
+  void complete_command_(CommandFlags flag);
+
   // Command Processor states
   enum class CommandState : uint8_t {
     BEGIN_CONFIG,

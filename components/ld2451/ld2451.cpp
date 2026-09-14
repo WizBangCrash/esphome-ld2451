@@ -201,6 +201,11 @@ void LD2451Component::action_commands_() {
 // ---------------------------------------------------------------------
 //
 
+void LD2451Component::complete_command_(CommandFlags flag) {
+  this->pending_commands_ &= ~flag;
+  this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+}
+
 bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16_t len) {
   const uint8_t command = data[0];
   const uint16_t result = (data[2] | data[3] << 8);
@@ -236,13 +241,11 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_BLUETOOTH:
-      this->pending_commands_ &= ~CommandFlags::BLUETOOTH;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::BLUETOOTH);
       break;
 
     case CMD_READ_FIRMWARE:
-      this->pending_commands_ &= ~CommandFlags::READ_FIRMWARE;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::READ_FIRMWARE);
       if (data[5] != 0x24 && data[4] != 0x51) {  // firmware type 0x2451
         ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%02X%02X (expected 0x2451)", data[5],
                  data[4]);
@@ -268,8 +271,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_GET_SENSITIVITY:
-      this->pending_commands_ &= ~CommandFlags::GET_SENSITIVITY;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::GET_SENSITIVITY);
       // Process the data
       this->cfg_multi_trigger_ = data[4] == 0x01;
       this->cfg_snr_threshold_ = data[5];
@@ -282,13 +284,11 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_SET_SENSITIVITY:
-      this->pending_commands_ &= ~CommandFlags::SET_SENSITIVITY;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::SET_SENSITIVITY);
       break;
 
     case CMD_GET_TARGET_DETECTION_CFG:
-      this->pending_commands_ &= ~CommandFlags::GET_TARGET_DETECTION;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::GET_TARGET_DETECTION);
       // Process the data
       this->cfg_max_distance_ = data[4];
       this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
@@ -313,8 +313,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_SET_TARGET_DETECTION_CFG:
-      this->pending_commands_ &= ~CommandFlags::SET_TARGET_DETECTION;
-      this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+      this->complete_command_(CommandFlags::SET_TARGET_DETECTION);
       break;
   }
   return true;
