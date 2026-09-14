@@ -29,12 +29,9 @@ FactoryResetAction = ld2451_ns.class_("LD2451FactoryResetAction", automation.Act
 RestartAction = ld2451_ns.class_("LD2451RestartAction", automation.Action)
 RefreshConfigAction = ld2451_ns.class_("LD2451RefreshConfigAction", automation.Action)
 
-CONFIG_SCHEMA = (
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(LD2451Component),
-        }
-    )
+CONFIG_SCHEMA = (cv.Schema({
+    cv.GenerateID(): cv.declare_id(LD2451Component),
+    })
     .extend(cv.COMPONENT_SCHEMA)
     .extend(uart.UART_DEVICE_SCHEMA)
 )

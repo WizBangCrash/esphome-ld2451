@@ -28,9 +28,9 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
-    hub = await cg.get_variable(config[CONF_LD2451_ID])
+    var = await cg.get_variable(config[CONF_LD2451_ID])
 
     if direction_config := config.get(CONF_DETECTION_DIRECTION):
         s = await select.new_select(direction_config, options=OPTIONS)
         await cg.register_component(s, direction_config)
-        cg.add(s.set_parent(hub))
+        cg.add(s.set_parent(var))

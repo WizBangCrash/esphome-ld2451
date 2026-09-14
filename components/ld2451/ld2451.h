@@ -16,35 +16,33 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #endif
 
-namespace esphome {
-
+namespace esphome::sensor {
 // Keep the pointer declarations valid even when the sensor platform header is
 // not enabled in this translation unit.
-namespace sensor {
 class Sensor;
-}
+}  // namespace esphome::sensor
 
-namespace ld2451 {
+namespace esphome::ld2451 {
 
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
 static constexpr uint8_t LD2451_MAX_TARGETS = 5;
 
 enum class LD2451Direction : uint8_t {
-  AWAY = 0x00,     // target moving away from the radar
-  TOWARD = 0x01,   // target moving toward the radar
-  ALL = 0x02,      // used only for the "detection direction" config parameter
+  AWAY = 0x00,    // target moving away from the radar
+  TOWARD = 0x01,  // target moving toward the radar
+  ALL = 0x02,     // used only for the "detection direction" config parameter
 };
 
 struct LD2451Target {
   bool valid{false};
-  int8_t angle{0};        // degrees, signed (raw byte - 0x80)
-  uint8_t distance{0};    // meters
+  int8_t angle{0};      // degrees, signed (raw byte - 0x80)
+  uint8_t distance{0};  // meters
   LD2451Direction direction{LD2451Direction::AWAY};
-  uint8_t speed{0};       // km/h
-  uint8_t snr{0};         // signal to noise ratio, 0-255
+  uint8_t speed{0};  // km/h
+  uint8_t snr{0};    // signal to noise ratio, 0-255
 };
 
-class LD2451Component : public Component, public uart::UARTDevice {
+class LD2451Component final : public Component, public uart::UARTDevice {
  public:
   void setup() override;
   void loop() override;
@@ -55,11 +53,11 @@ class LD2451Component : public Component, public uart::UARTDevice {
   // These issue a full enable-config / command / end-config exchange with the
   // radar. They are blocking (bounded by COMMAND_TIMEOUT_MS) and are intended
   // to be called rarely (e.g. from a UI control), never from a fast loop.
-  void set_max_distance(uint8_t meters);        // 10-100 m
-  void set_min_speed(uint8_t kmh);               // 0-120 km/h
-  void set_no_target_delay(uint8_t seconds);     // 0-255 s
+  void set_max_distance(uint8_t meters);      // 10-100 m
+  void set_min_speed(uint8_t kmh);            // 0-120 km/h
+  void set_no_target_delay(uint8_t seconds);  // 0-255 s
   void set_detection_direction(LD2451Direction direction);
-  void set_snr_threshold(uint8_t snr);           // 3-8
+  void set_snr_threshold(uint8_t snr);            // 3-8
   void set_multi_trigger(bool require_multiple);  // "cumulative effective trigger times"
   // Enables/disables the radar's built-in Bluetooth (see the CMD_BLUETOOTH
   // note in ld2451.cpp - command word inferred from the LD2410, not
@@ -110,7 +108,6 @@ class LD2451Component : public Component, public uart::UARTDevice {
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
  protected:
-
   // ---- Command processing helpers ----
   void action_commands_();
   void write_command_frame_(uint8_t command, const uint8_t *value, uint8_t value_len);
@@ -134,7 +131,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
   void process_frames_();
   void handle_report_frame_(const uint8_t *data, uint16_t len);
   bool handle_command_response_frame_(const uint8_t *data, uint16_t len);
-// Publishes target/count/presence state for `count` targets described by
+  // Publishes target/count/presence state for `count` targets described by
   // `data` (or count=0, data=nullptr to publish an all-clear state). Shared
   // by handle_report_payload_() (actual frames) and clear_all_targets_()
   // (idle timeout fallback, see loop()).
@@ -157,24 +154,21 @@ class LD2451Component : public Component, public uart::UARTDevice {
   };
   ParseState state_{ParseState::HEADER_1};
 
-  enum class FrameType : uint8_t {
-    REPORT,
-    COMMAND
-  };
+  enum class FrameType : uint8_t { REPORT, COMMAND };
   FrameType frame_type_{FrameType::REPORT};
 
   // Bitmask for the list of commnds pending for the next loop() call
   enum CommandFlags : uint16_t {
-    READ_FIRMWARE         = 0x0001,
-    SET_BAUDRATE          = 0x0002,
-    FACTORY_RESET         = 0x0004,
-    RESTART               = 0x0008,
-    BLUETOOTH             = 0x0010,
-    SET_TARGET_DETECTION  = 0x0020,
-    GET_TARGET_DETECTION  = 0x0040,
-    SET_SENSITIVITY       = 0x0080,
-    GET_SENSITIVITY       = 0x0100,
-    DUMP_CONFIG           = 0x0200,
+    READ_FIRMWARE = 0x0001,
+    SET_BAUDRATE = 0x0002,
+    FACTORY_RESET = 0x0004,
+    RESTART = 0x0008,
+    BLUETOOTH = 0x0010,
+    SET_TARGET_DETECTION = 0x0020,
+    GET_TARGET_DETECTION = 0x0040,
+    SET_SENSITIVITY = 0x0080,
+    GET_SENSITIVITY = 0x0100,
+    DUMP_CONFIG = 0x0200,
   };
   uint16_t pending_commands_{0x00};
 
@@ -231,8 +225,7 @@ class LD2451Component : public Component, public uart::UARTDevice {
 #endif
 };
 
-}  // namespace ld2451
-}  // namespace esphome
+}  // namespace esphome::ld2451
 
 // These are header-only platform classes. They live in subdirectories for
 // organization, but must be pulled into any translation unit (i.e. the
