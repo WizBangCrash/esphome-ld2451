@@ -67,7 +67,7 @@ static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
 
-static bool time_since(uint32_t last_action_ms, uint32_t timeout_ms) {
+static bool wait_time_exceeded(uint32_t last_action_ms, uint32_t timeout_ms) {
   return (App.get_loop_component_start_time() - last_action_ms) > timeout_ms;
 }
 
@@ -137,7 +137,7 @@ void LD2451Component::action_commands_() {
     // Wait for a response from command action
     // Timeout if no response recieved within defined period
     case CommandState::WAIT_RESPONSE:
-      if (time_since(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
+      if (wait_time_exceeded(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
         this->command_state_ = CommandState::BEGIN_CONFIG;
         ESP_LOGW(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
       }
@@ -171,7 +171,7 @@ void LD2451Component::action_commands_() {
       } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
         get_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
-        if (time_since(this->last_action_ms_, 100)) {
+        if (wait_time_exceeded(this->last_action_ms_, 100)) {
           dump_config();
           this->pending_commands_ &= ~CommandFlags::DUMP_CONFIG;
           this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
