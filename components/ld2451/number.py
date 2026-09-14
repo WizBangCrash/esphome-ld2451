@@ -21,12 +21,36 @@ CONF_MIN_SPEED = "min_speed"
 CONF_NO_TARGET_DELAY = "no_target_delay"
 CONF_SNR_THRESHOLD = "snr_threshold"
 
-# (yaml key, unit, min, max, step, icon, field enum member)
+# (yaml key, unit, min, max, step, icon, field enum member, hub setter for state sync)
 NUMBERS = {
-    CONF_MAX_DISTANCE: (UNIT_METER, 10, 100, 1, "mdi:arrow-expand-horizontal", "MAX_DISTANCE"),
-    CONF_MIN_SPEED: (UNIT_KILOMETER_PER_HOUR, 0, 120, 1, "mdi:speedometer-slow", "MIN_SPEED"),
-    CONF_NO_TARGET_DELAY: (UNIT_SECOND, 0, 30, 1, "mdi:timer-outline", "NO_TARGET_DELAY"),
-    CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "SNR_THRESHOLD"),
+    CONF_MAX_DISTANCE: (
+        UNIT_METER,
+        10,
+        100,
+        1,
+        "mdi:arrow-expand-horizontal",
+        "MAX_DISTANCE",
+        "set_max_distance_number",
+    ),
+    CONF_MIN_SPEED: (
+        UNIT_KILOMETER_PER_HOUR,
+        0,
+        120,
+        1,
+        "mdi:speedometer-slow",
+        "MIN_SPEED",
+        "set_min_speed_number",
+    ),
+    CONF_NO_TARGET_DELAY: (
+        UNIT_SECOND,
+        0,
+        30,
+        1,
+        "mdi:timer-outline",
+        "NO_TARGET_DELAY",
+        "set_no_target_delay_number",
+    ),
+    CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "SNR_THRESHOLD", "set_snr_threshold_number"),
 }
 
 CONFIG_SCHEMA = cv.Schema(
@@ -40,7 +64,7 @@ CONFIG_SCHEMA = cv.Schema(
                 icon=icon,
                 entity_category=ENTITY_CATEGORY_CONFIG,
             )
-            for key, (unit, _min, _max, _step, icon, _field) in NUMBERS.items()
+            for key, (unit, _min, _max, _step, icon, _field, _setter) in NUMBERS.items()
         },
     }
 )
@@ -49,7 +73,7 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config):
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
-    for key, (_unit, min_val, max_val, step, _icon, field) in NUMBERS.items():
+    for key, (_unit, min_val, max_val, step, _icon, field, setter) in NUMBERS.items():
         if key not in config:
             continue
         n = await number.new_number(
@@ -58,3 +82,4 @@ async def to_code(config):
         await cg.register_component(n, config[key])
         cg.add(n.set_parent(hub))
         cg.add(n.set_field(getattr(LD2451NumberField, field)))
+        cg.add(getattr(hub, setter)(n))

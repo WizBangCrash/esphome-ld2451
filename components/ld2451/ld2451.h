@@ -24,9 +24,10 @@ class Sensor;
 
 namespace esphome::ld2451 {
 
-// Defined in ld2451_select.h, which includes this header - forward-declared
-// here so LD2451Component can hold a pointer to it.
+// Defined in ld2451_select.h / ld2451_number.h, which include this header -
+// forward-declared here so LD2451Component can hold pointers to them.
 class LD2451DirectionSelect;
+class LD2451Number;
 
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
 static constexpr uint8_t LD2451_MAX_TARGETS = 5;
@@ -102,6 +103,13 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_SELECT
   void set_direction_select(LD2451DirectionSelect *s) { direction_select_ = s; }
+#endif
+
+#ifdef USE_NUMBER
+  void set_max_distance_number(LD2451Number *n) { max_distance_number_ = n; }
+  void set_min_speed_number(LD2451Number *n) { min_speed_number_ = n; }
+  void set_no_target_delay_number(LD2451Number *n) { no_target_delay_number_ = n; }
+  void set_snr_threshold_number(LD2451Number *n) { snr_threshold_number_ = n; }
 #endif
 
   // Used by number/select/switch platforms to know the config values last
@@ -234,6 +242,13 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_SELECT
   LD2451DirectionSelect *direction_select_{nullptr};
+#endif
+
+#ifdef USE_NUMBER
+  LD2451Number *max_distance_number_{nullptr};
+  LD2451Number *min_speed_number_{nullptr};
+  LD2451Number *no_target_delay_number_{nullptr};
+  LD2451Number *snr_threshold_number_{nullptr};
 #endif
 };
 

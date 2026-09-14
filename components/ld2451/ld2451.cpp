@@ -3,6 +3,9 @@
 #ifdef USE_SELECT
 #include "ld2451_select.h"
 #endif
+#ifdef USE_NUMBER
+#include "ld2451_number.h"
+#endif
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -264,7 +267,12 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       // Process the data
       this->cfg_multi_trigger_ = data[4] == 0x01;
       this->cfg_snr_threshold_ = data[5];
-      // TODO: Need to publish sensitivity state here too
+      // TODO: Need to publish multi_trigger switch state here too
+#ifdef USE_NUMBER
+      if (this->snr_threshold_number_ != nullptr) {
+        this->snr_threshold_number_->publish_state(this->cfg_snr_threshold_);
+      }
+#endif
       break;
 
     case CMD_SET_SENSITIVITY:
@@ -280,7 +288,17 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
       this->cfg_min_speed_ = data[6];
       this->cfg_no_target_delay_ = data[7];
-      // TODO: Need to publish max_distance/min_speed/no_target_delay state here too
+#ifdef USE_NUMBER
+      if (this->max_distance_number_ != nullptr) {
+        this->max_distance_number_->publish_state(this->cfg_max_distance_);
+      }
+      if (this->min_speed_number_ != nullptr) {
+        this->min_speed_number_->publish_state(this->cfg_min_speed_);
+      }
+      if (this->no_target_delay_number_ != nullptr) {
+        this->no_target_delay_number_->publish_state(this->cfg_no_target_delay_);
+      }
+#endif
 #ifdef USE_SELECT
       if (this->direction_select_ != nullptr) {
         this->direction_select_->publish_direction(this->cfg_direction_);
