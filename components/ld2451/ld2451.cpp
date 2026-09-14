@@ -162,14 +162,14 @@ void LD2451Component::action_commands_() {
         restart_module_();
       } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
         read_firmware_();
-      } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
-        get_sensitivity_();
-      } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
-        get_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::SET_SENSITIVITY) {
         set_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
         set_target_detection_cfg_();
+      } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
+        get_sensitivity_();
+      } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
+        get_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
         if (time_since(this->last_action_ms_, 100)) {
           dump_config();
@@ -619,6 +619,9 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
 
 // ---------------------------------------------------------------------
 // Public configuration API
+//
+// NOTE: The SET commands are follwed by a GET command in order to ensure
+//       the entities are updated with the value from the LD2451
 // ---------------------------------------------------------------------
 
 void LD2451Component::refresh_config() {
@@ -626,50 +629,44 @@ void LD2451Component::refresh_config() {
                              CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
 }
 
-// TODO: Update cfg_max_distance_ after determining command was successful
 void LD2451Component::set_max_distance(uint8_t meters) {
   if (meters < 10)
     meters = 10;
   if (meters > 100)
     meters = 100;
   this->cfg_max_distance_ = meters;
-  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
+  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
 }
 
-// TODO: Update cfg_min_speed_ after determining command was successful
 void LD2451Component::set_min_speed(uint8_t kmh) {
   if (kmh > 0x78)
     kmh = 0x78;
   this->cfg_min_speed_ = kmh;
-  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
+  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
 }
 
-// TODO: Update cfg_no_target_delay_ after determining command was successful
 void LD2451Component::set_no_target_delay(uint8_t seconds) {
   this->cfg_no_target_delay_ = seconds;
-  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
+  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
 }
 
-// TODO: Update cfg_direction_ after determining command was successful
 void LD2451Component::set_detection_direction(LD2451Direction direction) {
   this->cfg_direction_ = direction;
-  this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
+  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
 }
 
-// TODO: Update cfg_snr_threshold_ after determining command was successful
 void LD2451Component::set_snr_threshold(uint8_t snr) {
   if (snr < 3)
     snr = 3;
   if (snr > 8)
     snr = 8;
   this->cfg_snr_threshold_ = snr;
-  this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
+  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
 }
 
-// TODO: Update cfg_multi_trigger_ after determining command was successful
 void LD2451Component::set_multi_trigger(bool require_multiple) {
   this->cfg_multi_trigger_ = require_multiple;
-  this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
+  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
 }
 
 void LD2451Component::set_bluetooth_enable(bool enable) {
