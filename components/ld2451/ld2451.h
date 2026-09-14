@@ -226,6 +226,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // command for it. Only reflects what this component has itself set.
   bool cfg_bluetooth_enabled_{true};
   ::std::string firmware_version_{};
+  uint16_t comms_protocol_version_{0xFFFF};
 
 #ifdef USE_SENSOR
   sensor::Sensor *target_count_sensor_{nullptr};

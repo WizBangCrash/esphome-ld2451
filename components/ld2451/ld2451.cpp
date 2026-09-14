@@ -145,7 +145,7 @@ void LD2451Component::action_commands_() {
         // pending_commands_ is only empty here while waiting on the END_CONFIG
         // ack - retry that specifically instead of dropping back to idle.
         this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
-        ESP_LOGW(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
+        ESP_LOGV(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
       }
       break;
 
@@ -220,7 +220,9 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
   // Process succesful command
   switch (command) {
     case CMD_ENABLE_CONFIG:
-      ESP_LOGD(TAG, "Comms Protocol version: %04X", (data[4] | data[5] << 8));
+      if (this->comms_protocol_version_ == 0xFFFF) {
+        this->comms_protocol_version_ = (data[4] | data[5] << 8);
+      }
       this->command_state_ = CommandState::SEND_COMMAND;
       break;
 
@@ -261,7 +263,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       snprintf(buf, sizeof(buf), "V%u.%02u.%02u%02u%02u%02u", data[7], data[6], data[11], data[10], data[9], data[8]);
       this->firmware_version_ = buf;
 
-      ESP_LOGD(TAG, "Firmware version raw bytes: %02X %02X %02X %02X %02X %02X %02X %02X", data[4], data[5], data[7],
+      ESP_LOGV(TAG, "Firmware version raw bytes: %02X %02X %02X %02X %02X %02X %02X %02X", data[4], data[5], data[7],
                data[6], data[11], data[10], data[9], data[8]);
 #ifdef USE_TEXT_SENSOR
       if (this->firmware_version_text_sensor_ != nullptr) {
@@ -348,7 +350,6 @@ void LD2451Component::process_frames_() {
           this->state_ = ParseState::HEADER_2;
           this->frame_type_ = FrameType::COMMAND;
         }
-        ESP_LOGV(TAG, "Frame type: %u", this->frame_type_);
         break;
 
       case ParseState::HEADER_2:
@@ -418,13 +419,13 @@ void LD2451Component::process_frames_() {
         }
         if (this->frame_type_ == FrameType::COMMAND) {
           char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Command frame: %s (%u)",
+          ESP_LOGD(TAG, "Command response: %s (%u)",
                    format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()),
                    this->payload_.size());
           this->handle_command_response_frame_(this->payload_.data(), this->payload_.size());
         } else {
           char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Report frame: %s (%u)",
+          ESP_LOGV(TAG, "Report frame: %s (%u)",
                    format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()),
                    this->payload_.size());
           this->handle_report_frame_(this->payload_.data(), this->payload_.size());
@@ -477,7 +478,7 @@ void LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value
   this->flush();
 
   char hex[value_len * 3 + 1];
-  ESP_LOGD(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, sizeof(hex), value, value_len),
+  ESP_LOGV(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, sizeof(hex), value, value_len),
            value_len);
 }
 
@@ -539,6 +540,7 @@ void LD2451Component::dump_config() {
                 "LD2451:\n"
                 "  Version: %s\n"
                 "  Firmware: %s\n"
+                "  Comms Protocol Version : %04X\n"
                 "  Max distance: %u m\n"
                 "  Min speed: %u km/h\n"
                 "  No-target delay: %u s\n"
@@ -547,9 +549,9 @@ void LD2451Component::dump_config() {
                 "  Multi-trigger required: %s\n"
                 "  Bluetooth: %s (assumed state - not read back from radar)",
                 COMPONENT_VERSION, this->firmware_version_.empty() ? "Unknown" : this->firmware_version_.c_str(),
-                this->cfg_max_distance_, this->cfg_min_speed_, this->cfg_no_target_delay_,
-                direction_to_string(this->cfg_direction_), this->cfg_snr_threshold_, YESNO(this->cfg_multi_trigger_),
-                ONOFF(this->cfg_bluetooth_enabled_));
+                this->comms_protocol_version_, this->cfg_max_distance_, this->cfg_min_speed_,
+                this->cfg_no_target_delay_, direction_to_string(this->cfg_direction_), this->cfg_snr_threshold_,
+                YESNO(this->cfg_multi_trigger_), ONOFF(this->cfg_bluetooth_enabled_));
 }
 
 void LD2451Component::clear_all_targets_() {
