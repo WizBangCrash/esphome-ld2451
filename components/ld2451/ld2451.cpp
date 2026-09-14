@@ -142,7 +142,9 @@ void LD2451Component::action_commands_() {
     // Timeout if no response recieved within defined period
     case CommandState::WAIT_RESPONSE:
       if (wait_time_exceeded(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
-        this->command_state_ = CommandState::BEGIN_CONFIG;
+        // pending_commands_ is only empty here while waiting on the END_CONFIG
+        // ack - retry that specifically instead of dropping back to idle.
+        this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
         ESP_LOGW(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
       }
       break;
