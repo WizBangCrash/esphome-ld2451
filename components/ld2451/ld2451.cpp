@@ -383,7 +383,7 @@ void LD2451Component::process_frames_() {
           ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
           this->state_ = ParseState::HEADER_1;
         } else {
-          this->payload_.reserve(this->payload_len_);
+          this->payload_.init(this->payload_len_);
           this->state_ = ParseState::PAYLOAD;
         }
         break;
@@ -420,15 +420,15 @@ void LD2451Component::process_frames_() {
         if (this->frame_type_ == FrameType::COMMAND) {
           char hex_buf[this->payload_.size() * 3];
           ESP_LOGD(TAG, "Command response: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()),
+                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
                    this->payload_.size());
-          this->handle_command_response_frame_(this->payload_.data(), this->payload_.size());
+          this->handle_command_response_frame_(this->payload_.begin(), this->payload_.size());
         } else {
           char hex_buf[this->payload_.size() * 3];
           ESP_LOGV(TAG, "Report frame: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.data(), this->payload_.size()),
+                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
                    this->payload_.size());
-          this->handle_report_frame_(this->payload_.data(), this->payload_.size());
+          this->handle_report_frame_(this->payload_.begin(), this->payload_.size());
         }
         break;
     }

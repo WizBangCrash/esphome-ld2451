@@ -205,7 +205,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
   // Received frame payload
   uint16_t payload_len_{0};
-  ::std::vector<uint8_t> payload_;
+  FixedVector<uint8_t> payload_;
 
   // 0 = no report frame seen yet since boot (don't idle-clear before the
   // radar has said anything at all).
