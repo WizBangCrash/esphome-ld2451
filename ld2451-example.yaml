@@ -177,7 +177,8 @@ text_sensor:
     # Firmware version reported by the LD2451 module (diagnostic)
     firmware_version:
       name: "Radar Firmware Version"
-      id: radar_firmware_version
+    component_version:
+      name: "Component Version"
 
 # ── Numbers (writable configuration parameters) ──────────────
 number:
