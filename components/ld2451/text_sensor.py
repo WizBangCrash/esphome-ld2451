@@ -8,12 +8,17 @@ from . import CONF_LD2451_ID, LD2451Component
 DEPENDENCIES = ["ld2451"]
 
 CONF_FIRMWARE_VERSION = "firmware_version"
+CONF_COMPONENT_VERSION = "component_version"
 
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_ID): cv.declare_id(cg.EntityBase),
         cv.GenerateID(CONF_LD2451_ID): cv.use_id(LD2451Component),
         cv.Optional(CONF_FIRMWARE_VERSION): text_sensor.text_sensor_schema(
+            icon=ICON_CHIP,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        ),
+        cv.Optional(CONF_COMPONENT_VERSION): text_sensor.text_sensor_schema(
             icon=ICON_CHIP,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
@@ -27,3 +32,7 @@ async def to_code(config):
     if fw_config := config.get(CONF_FIRMWARE_VERSION):
         s = await text_sensor.new_text_sensor(fw_config)
         cg.add(var.set_firmware_version_text_sensor(s))
+
+    if cv_config := config.get(CONF_COMPONENT_VERSION):
+        s = await text_sensor.new_text_sensor(cv_config)
+        cg.add(var.set_component_version_text_sensor(s))

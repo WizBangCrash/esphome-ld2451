@@ -99,6 +99,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_TEXT_SENSOR
   void set_firmware_version_text_sensor(text_sensor::TextSensor *s) { firmware_version_text_sensor_ = s; }
+  void set_component_version_text_sensor(text_sensor::TextSensor *s) { component_version_text_sensor_ = s; }
 #endif
 
 #ifdef USE_SELECT
@@ -243,6 +244,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *firmware_version_text_sensor_{nullptr};
+  text_sensor::TextSensor *component_version_text_sensor_{nullptr};
 #endif
 
 #ifdef USE_SELECT

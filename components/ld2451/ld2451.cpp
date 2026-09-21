@@ -82,6 +82,12 @@ static bool wait_time_exceeded(uint32_t last_action_ms, uint32_t timeout_ms) {
 void LD2451Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up LD2451...");
   this->drain_rx_();
+#ifdef USE_TEXT_SENSOR
+  // Compile-time constant, so publish it immediately rather than waiting on the radar.
+  if (this->component_version_text_sensor_ != nullptr) {
+    this->component_version_text_sensor_->publish_state(COMPONENT_VERSION);
+  }
+#endif
   this->pending_commands_ = CommandFlags::READ_FIRMWARE | CommandFlags::GET_TARGET_DETECTION |
                             CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
   // this->refresh_config();
