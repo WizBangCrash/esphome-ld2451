@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vector>
+#include <array>
 #include <string>
 
 #include "esphome/core/component.h"
@@ -31,6 +31,8 @@ class LD2451Number;
 
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
 static constexpr uint8_t LD2451_MAX_TARGETS = 5;
+// Largest report payload: target_count(1) + alarm(1) + 5 bytes per target
+static constexpr uint16_t LD2451_MAX_PAYLOAD_LEN = 2 + LD2451_MAX_TARGETS * 5;
 
 enum class LD2451Direction : uint8_t {
   AWAY = 0x00,    // target moving away from the radar
@@ -204,9 +206,11 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // Time last configuration session started
   uint32_t last_action_ms_{0};
 
-  // Received frame payload
+  // Received frame payload. Fixed size (the parser rejects longer frames) so
+  // no heap allocation happens per frame.
   uint16_t payload_len_{0};
-  FixedVector<uint8_t> payload_;
+  uint8_t payload_pos_{0};
+  std::array<uint8_t, LD2451_MAX_PAYLOAD_LEN> payload_{};
 
   // 0 = no report frame seen yet since boot (don't idle-clear before the
   // radar has said anything at all).

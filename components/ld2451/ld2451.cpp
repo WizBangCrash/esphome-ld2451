@@ -213,8 +213,33 @@ void LD2451Component::complete_command_(CommandFlags flag) {
   this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
 }
 
+// Minimum ACK payload length for each command: cmd(2) + status(2) + any
+// data bytes read by handle_command_response_frame_().
+static uint16_t min_ack_len(uint8_t command) {
+  switch (command) {
+    case CMD_ENABLE_CONFIG:
+    case CMD_GET_SENSITIVITY:
+      return 6;
+    case CMD_GET_TARGET_DETECTION_CFG:
+      return 8;
+    case CMD_READ_FIRMWARE:
+      return 12;
+    default:
+      return 4;
+  }
+}
+
 bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16_t len) {
+  // ACK frames are cmd(1) 0x01 status(2) [data...]
+  if (len < 4 || data[1] != 0x01) {
+    ESP_LOGW(TAG, "Invalid command response (len %u), ignoring", len);
+    return false;
+  }
   const uint8_t command = data[0];
+  if (len < min_ack_len(command)) {
+    ESP_LOGW(TAG, "Command %02X response too short (%u < %u), ignoring", command, len, min_ack_len(command));
+    return false;
+  }
   const uint16_t result = (data[2] | data[3] << 8);
 
   // Check for command failure - result non-zero
@@ -381,23 +406,22 @@ void LD2451Component::process_frames_() {
 
       case ParseState::LEN_HIGH:
         this->payload_len_ |= (static_cast<uint16_t>(uart_byte) << 8);
-        this->payload_.clear();
+        this->payload_pos_ = 0;
         if (this->payload_len_ == 0) {
           // No target present - frame has no payload, go straight to footer.
           this->state_ = ParseState::FOOTER_1;
-        } else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5) {
+        } else if (this->payload_len_ > LD2451_MAX_PAYLOAD_LEN) {
           // Sanity check - malformed/garbage length, resync.
           ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
           this->state_ = ParseState::HEADER_1;
         } else {
-          this->payload_.init(this->payload_len_);
           this->state_ = ParseState::PAYLOAD;
         }
         break;
 
       case ParseState::PAYLOAD:
-        this->payload_.push_back(uart_byte);
-        if (this->payload_.size() >= this->payload_len_) {
+        this->payload_[this->payload_pos_++] = uart_byte;
+        if (this->payload_pos_ >= this->payload_len_) {
           this->state_ = ParseState::FOOTER_1;
         }
         break;
@@ -417,27 +441,24 @@ void LD2451Component::process_frames_() {
         this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
         break;
 
-      case ParseState::FOOTER_4:
+      case ParseState::FOOTER_4: {
         frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
         this->state_ = ParseState::HEADER_1;
         if (uart_byte != frame_byte) {
           ESP_LOGW(TAG, "Frame footer mismatch, dropping frame");
           break;
         }
-        if (this->frame_type_ == FrameType::COMMAND) {
-          char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Command response: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
-                   this->payload_.size());
-          this->handle_command_response_frame_(this->payload_.begin(), this->payload_.size());
+        const bool is_command = this->frame_type_ == FrameType::COMMAND;
+        char hex_buf[format_hex_pretty_size(LD2451_MAX_PAYLOAD_LEN)];
+        ESP_LOGV(TAG, "%s frame: %s (%u)", is_command ? "Command" : "Report",
+                 format_hex_pretty_to(hex_buf, this->payload_.data(), this->payload_pos_), this->payload_pos_);
+        if (is_command) {
+          this->handle_command_response_frame_(this->payload_.data(), this->payload_pos_);
         } else {
-          char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Report frame: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
-                   this->payload_.size());
-          this->handle_report_frame_(this->payload_.begin(), this->payload_.size());
+          this->handle_report_frame_(this->payload_.data(), this->payload_pos_);
         }
         break;
+      }
     }
   }
 }
@@ -484,9 +505,9 @@ void LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value
   this->write_array(CMD_FOOTER, 4);
   this->flush();
 
-  char hex[value_len * 3 + 1];
-  ESP_LOGV(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, sizeof(hex), value, value_len),
-           value_len);
+  // Largest command value is 4 bytes (set target detection / sensitivity)
+  char hex[format_hex_pretty_size(4)];
+  ESP_LOGV(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, value, value_len), value_len);
 }
 
 void LD2451Component::begin_config_() {
