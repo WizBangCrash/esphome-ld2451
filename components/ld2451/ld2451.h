@@ -194,6 +194,9 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // Clears `flag` from pending_commands_ and advances command_state_ to the
   // next pending command, or END_CONFIG if none remain.
   void complete_command_(CommandFlags flag);
+  // Handles a timeout or failure reply for the in-flight command: retries up
+  // to MAX_COMMAND_ATTEMPTS, then drops the command.
+  void command_failed_();
 
   // Command Processor states
   enum class CommandState : uint8_t {
@@ -205,6 +208,12 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   CommandState command_state_{CommandState::BEGIN_CONFIG};
   // Time last configuration session started
   uint32_t last_action_ms_{0};
+  // Command byte last sent to the radar, and the pending flag it serves
+  // (in_flight_flag_ is only meaningful for non enable/end-config commands).
+  uint8_t in_flight_cmd_{0};
+  uint16_t in_flight_flag_{0};
+  // Consecutive failed attempts of the in-flight command
+  uint8_t attempts_{0};
 
   // Received frame payload. Fixed size (the parser rejects longer frames) so
   // no heap allocation happens per frame.

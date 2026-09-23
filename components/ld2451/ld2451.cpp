@@ -62,6 +62,8 @@ static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 // report frame when no target is in view.
 static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
+// Attempts per command (timeouts or failure replies) before it is dropped.
+static constexpr uint8_t MAX_COMMAND_ATTEMPTS = 3;
 
 // Upper bound on time spent draining the UART buffer in a single
 // process_frames_() call, so a burst/backlog of report frames can't hold up
@@ -149,10 +151,8 @@ void LD2451Component::action_commands_() {
     // Timeout if no response recieved within defined period
     case CommandState::WAIT_RESPONSE:
       if (wait_time_exceeded(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
-        // pending_commands_ is only empty here while waiting on the END_CONFIG
-        // ack - retry that specifically instead of dropping back to idle.
-        this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
-        ESP_LOGV(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
+        ESP_LOGV(TAG, "Command %02X response timed out", this->in_flight_cmd_);
+        this->command_failed_();
       }
       break;
 
@@ -168,20 +168,28 @@ void LD2451Component::action_commands_() {
       // The order of the if statement is important e.g.
       // The Bluetooth change needs to happen before the module restart
       if (this->pending_commands_ & CommandFlags::FACTORY_RESET) {
+        this->in_flight_flag_ = CommandFlags::FACTORY_RESET;
         this->factory_reset_();
       } else if (this->pending_commands_ & CommandFlags::BLUETOOTH) {
+        this->in_flight_flag_ = CommandFlags::BLUETOOTH;
         this->enable_bluetooth_();
       } else if (this->pending_commands_ & CommandFlags::RESTART) {
+        this->in_flight_flag_ = CommandFlags::RESTART;
         this->restart_module_();
       } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
+        this->in_flight_flag_ = CommandFlags::READ_FIRMWARE;
         this->read_firmware_();
       } else if (this->pending_commands_ & CommandFlags::SET_SENSITIVITY) {
+        this->in_flight_flag_ = CommandFlags::SET_SENSITIVITY;
         this->set_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
+        this->in_flight_flag_ = CommandFlags::SET_TARGET_DETECTION;
         this->set_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
+        this->in_flight_flag_ = CommandFlags::GET_SENSITIVITY;
         this->get_sensitivity_();
       } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
+        this->in_flight_flag_ = CommandFlags::GET_TARGET_DETECTION;
         this->get_target_detection_cfg_();
       } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
         if (wait_time_exceeded(this->last_action_ms_, 100)) {
@@ -213,6 +221,38 @@ void LD2451Component::complete_command_(CommandFlags flag) {
   this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
 }
 
+// Called when the in-flight command times out or the radar reports a failure.
+// Retries (re-entering config mode first) up to MAX_COMMAND_ATTEMPTS, then
+// gives up on that command so a bad command can't keep the radar in config
+// mode forever.
+void LD2451Component::command_failed_() {
+  if (++this->attempts_ < MAX_COMMAND_ATTEMPTS) {
+    // pending_commands_ is only empty here while waiting on the END_CONFIG ack
+    this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
+    return;
+  }
+
+  this->attempts_ = 0;
+  this->status_set_warning();
+  switch (this->in_flight_cmd_) {
+    case CMD_ENABLE_CONFIG:
+      // Radar isn't responding at all - drop everything until the next request.
+      ESP_LOGW(TAG, "No response from radar, dropping pending commands (0x%04X)", this->pending_commands_);
+      this->pending_commands_ = 0;
+      this->command_state_ = CommandState::BEGIN_CONFIG;
+      break;
+    case CMD_END_CONFIG:
+      ESP_LOGW(TAG, "End config failed, giving up");
+      this->command_state_ = CommandState::BEGIN_CONFIG;
+      break;
+    default:
+      ESP_LOGW(TAG, "Command %02X failed after %u attempts, skipping", this->in_flight_cmd_, MAX_COMMAND_ATTEMPTS);
+      this->pending_commands_ &= ~this->in_flight_flag_;
+      this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
+      break;
+  }
+}
+
 // Minimum ACK payload length for each command: cmd(2) + status(2) + any
 // data bytes read by handle_command_response_frame_().
 static uint16_t min_ack_len(uint8_t command) {
@@ -242,11 +282,23 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
   }
   const uint16_t result = (data[2] | data[3] << 8);
 
+  // Ignore late/stale replies to an earlier command
+  if (this->command_state_ != CommandState::WAIT_RESPONSE || command != this->in_flight_cmd_) {
+    ESP_LOGV(TAG, "Unexpected response to command %02X, ignoring", command);
+    return false;
+  }
+
   // Check for command failure - result non-zero
-  // Commands keep retrying until they are successful
   if (result) {
     ESP_LOGW(TAG, "Command %02X failed. Result: %04X", command, result);
+    this->command_failed_();
     return false;
+  }
+  // Enable-config is only the preamble to a retry, so it must not reset the
+  // attempt count of the command being retried.
+  if (command != CMD_ENABLE_CONFIG) {
+    this->attempts_ = 0;
+    this->status_clear_warning();
   }
 
   // Process succesful command
@@ -499,6 +551,7 @@ void LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value
   this->write_byte((inner_len >> 8) & 0xFF);
   this->write_byte(command);
   this->write_byte(0x00);
+  this->in_flight_cmd_ = command;
   if (value_len > 0 && value != nullptr) {
     this->write_array(value, value_len);
   }
