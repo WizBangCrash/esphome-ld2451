@@ -151,7 +151,7 @@ void LD2451Component::action_commands_() {
   // uint8_t val[] = {0x00, 0x00, 0x00, 0x00};
   switch (this->command_state_) {
     // Wait for a response from command action
-    // Timeout if no response recieved within defined period
+    // Timeout if no response received within defined period
     case CommandState::WAIT_RESPONSE:
       if (wait_time_exceeded(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
         ESP_LOGV(TAG, "Command %02X response timed out", this->in_flight_cmd_);

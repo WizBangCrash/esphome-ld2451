@@ -176,7 +176,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   enum class FrameType : uint8_t { REPORT, COMMAND };
   FrameType frame_type_{FrameType::REPORT};
 
-  // Bitmask for the list of commnds pending for the next loop() call
+  // Bitmask for the list of commands pending for the next loop() call
   enum CommandFlags : uint16_t {
     READ_FIRMWARE = 0x0001,
     SET_BAUDRATE = 0x0002,
