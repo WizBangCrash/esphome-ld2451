@@ -255,7 +255,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
 
     case CMD_READ_FIRMWARE:
       this->complete_command_(CommandFlags::READ_FIRMWARE);
-      if (data[5] != 0x24 && data[4] != 0x51) {  // firmware type 0x2451
+      if (u_int16_t(data[4] | data[5] << 8) != 0x2451) {
         ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%02X%02X (expected 0x2451)", data[5],
                  data[4]);
       }
