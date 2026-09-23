@@ -6,6 +6,9 @@
 #ifdef USE_NUMBER
 #include "ld2451_number.h"
 #endif
+#ifdef USE_SWITCH
+#include "ld2451_switch.h"
+#endif
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -351,7 +354,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
 
     case CMD_READ_FIRMWARE:
       this->complete_command_(CommandFlags::READ_FIRMWARE);
-      if (u_int16_t(data[4] | data[5] << 8) != 0x2451) {
+      if (uint16_t(data[4] | data[5] << 8) != 0x2451) {
         ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%02X%02X (expected 0x2451)", data[5],
                  data[4]);
       }
@@ -378,7 +381,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
     case CMD_GET_SENSITIVITY:
       this->complete_command_(CommandFlags::GET_SENSITIVITY);
       // Process the data
-      this->cfg_multi_trigger_ = data[4] == 0x01;
+      this->cfg_trigger_count_ = data[4];
       this->cfg_snr_threshold_ = data[5];
       this->sensitivity_read_ = true;
       // Write any change requested before the config was first read
@@ -386,10 +389,17 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
         this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
         this->command_state_ = CommandState::SEND_COMMAND;
       }
-      // TODO: Need to publish multi_trigger switch state here too
 #ifdef USE_NUMBER
       if (this->snr_threshold_number_ != nullptr) {
         this->snr_threshold_number_->publish_state(this->cfg_snr_threshold_);
+      }
+      if (this->trigger_count_number_ != nullptr) {
+        this->trigger_count_number_->publish_state(this->cfg_trigger_count_);
+      }
+#endif
+#ifdef USE_SWITCH
+      if (this->multi_trigger_switch_ != nullptr) {
+        this->multi_trigger_switch_->publish_state(this->cfg_trigger_count_ != 0);
       }
 #endif
       break;
@@ -612,11 +622,9 @@ void LD2451Component::get_sensitivity_() { this->write_command_frame_(CMD_GET_SE
 
 // The SET commands write a whole block, so each field is the user's requested
 // value if there is one, otherwise the value last read from the radar.
-// TODO: multi_trigger should be a number between 0 and 10. Not a boolean!
 void LD2451Component::set_sensitivity_() {
   const uint8_t req = this->req_fields_;
-  const bool multi_trigger = (req & FIELD_MULTI_TRIGGER) ? this->req_multi_trigger_ : this->cfg_multi_trigger_;
-  const uint8_t val[4] = {static_cast<uint8_t>(multi_trigger ? 1 : 0),
+  const uint8_t val[4] = {(req & FIELD_TRIGGER_COUNT) ? this->req_trigger_count_ : this->cfg_trigger_count_,
                           (req & FIELD_SNR_THRESHOLD) ? this->req_snr_threshold_ : this->cfg_snr_threshold_, 0x00,
                           0x00};
   this->sent_fields_ = req & SENSITIVITY_FIELDS;
@@ -673,12 +681,12 @@ void LD2451Component::dump_config() {
                 "  No-target delay: %u s\n"
                 "  Detection direction: %s\n"
                 "  SNR threshold: %u\n"
-                "  Multi-trigger required: %s\n"
+                "  Trigger count: %u\n"
                 "  Bluetooth: %s (assumed state - not read back from radar)",
                 COMPONENT_VERSION, this->firmware_version_.empty() ? "Unknown" : this->firmware_version_.c_str(),
                 this->comms_protocol_version_, this->cfg_max_distance_, this->cfg_min_speed_,
                 this->cfg_no_target_delay_, direction_to_string(this->cfg_direction_), this->cfg_snr_threshold_,
-                YESNO(this->cfg_multi_trigger_), ONOFF(this->cfg_bluetooth_enabled_));
+                this->cfg_trigger_count_, ONOFF(this->cfg_bluetooth_enabled_));
 }
 
 void LD2451Component::clear_all_targets_() {
@@ -827,9 +835,11 @@ void LD2451Component::set_snr_threshold(uint8_t snr) {
   this->request_config_(FIELD_SNR_THRESHOLD);
 }
 
-void LD2451Component::set_multi_trigger(bool require_multiple) {
-  this->req_multi_trigger_ = require_multiple;
-  this->request_config_(FIELD_MULTI_TRIGGER);
+void LD2451Component::set_trigger_count(uint8_t count) {
+  if (count > 10)
+    count = 10;
+  this->req_trigger_count_ = count;
+  this->request_config_(FIELD_TRIGGER_COUNT);
 }
 
 void LD2451Component::set_bluetooth_enable(bool enable) {

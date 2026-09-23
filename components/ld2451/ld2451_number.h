@@ -11,6 +11,7 @@ enum class LD2451NumberField : uint8_t {
   MIN_SPEED,
   NO_TARGET_DELAY,
   SNR_THRESHOLD,
+  TRIGGER_COUNT,
 };
 
 class LD2451Number : public number::Number, public Component {
@@ -32,6 +33,9 @@ class LD2451Number : public number::Number, public Component {
       case LD2451NumberField::SNR_THRESHOLD:
         this->publish_state(this->parent_->get_config_snr_threshold());
         break;
+      case LD2451NumberField::TRIGGER_COUNT:
+        this->publish_state(this->parent_->get_config_trigger_count());
+        break;
     }
   }
 
@@ -50,6 +54,9 @@ class LD2451Number : public number::Number, public Component {
         break;
       case LD2451NumberField::SNR_THRESHOLD:
         this->parent_->set_snr_threshold(v);
+        break;
+      case LD2451NumberField::TRIGGER_COUNT:
+        this->parent_->set_trigger_count(v);
         break;
     }
     this->publish_state(value);

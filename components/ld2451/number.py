@@ -21,6 +21,7 @@ CONF_MAX_DISTANCE = "max_distance"
 CONF_MIN_SPEED = "min_speed"
 CONF_NO_TARGET_DELAY = "no_target_delay"
 CONF_SNR_THRESHOLD = "snr_threshold"
+CONF_TRIGGER_COUNT = "trigger_count"
 
 ICON_ARROW_EXPAND_HORIZONTAL = "mdi:arrow-expand-horizontal"
 ICON_SPEED_SLOW = "mdi:speedometer-slow"
@@ -55,6 +56,7 @@ NUMBERS = {
         "set_no_target_delay_number",
     ),
     CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "SNR_THRESHOLD", "set_snr_threshold_number"),
+    CONF_TRIGGER_COUNT: ("", 0, 10, 1, "mdi:counter", "TRIGGER_COUNT", "set_trigger_count_number"),
 }
 
 CONFIG_SCHEMA = cv.Schema(

@@ -28,6 +28,7 @@ namespace esphome::ld2451 {
 // forward-declared here so LD2451Component can hold pointers to them.
 class LD2451DirectionSelect;
 class LD2451Number;
+class LD2451MultiTriggerSwitch;
 
 // LD2451 supports up to 5 simultaneously tracked vehicle/pedestrian targets.
 static constexpr uint8_t LD2451_MAX_TARGETS = 5;
@@ -65,7 +66,11 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   void set_no_target_delay(uint8_t seconds);  // 0-255 s
   void set_detection_direction(LD2451Direction direction);
   void set_snr_threshold(uint8_t snr);            // 3-8
-  void set_multi_trigger(bool require_multiple);  // "cumulative effective trigger times"
+  // Number of consecutive detections required before a target is reported
+  // ("cumulative effective trigger times"), 0-10.
+  void set_trigger_count(uint8_t count);
+  // Deprecated on/off form of set_trigger_count(): on = 1, off = 0.
+  void set_multi_trigger(bool require_multiple) { this->set_trigger_count(require_multiple ? 1 : 0); }
   // Enables/disables the radar's built-in Bluetooth (see the CMD_BLUETOOTH
   // note in ld2451.cpp - command word inferred from the LD2410, not
   // confirmed against an LD2451-specific datasheet excerpt). There is no
@@ -113,6 +118,11 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   void set_min_speed_number(LD2451Number *n) { min_speed_number_ = n; }
   void set_no_target_delay_number(LD2451Number *n) { no_target_delay_number_ = n; }
   void set_snr_threshold_number(LD2451Number *n) { snr_threshold_number_ = n; }
+  void set_trigger_count_number(LD2451Number *n) { trigger_count_number_ = n; }
+#endif
+
+#ifdef USE_SWITCH
+  void set_multi_trigger_switch(LD2451MultiTriggerSwitch *s) { multi_trigger_switch_ = s; }
 #endif
 
   // Used by number/select/switch platforms to know the config values last
@@ -122,7 +132,8 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t get_config_no_target_delay() const { return cfg_no_target_delay_; }
   LD2451Direction get_config_direction() const { return cfg_direction_; }
   uint8_t get_config_snr_threshold() const { return cfg_snr_threshold_; }
-  bool get_config_multi_trigger() const { return cfg_multi_trigger_; }
+  uint8_t get_config_trigger_count() const { return cfg_trigger_count_; }
+  bool get_config_multi_trigger() const { return cfg_trigger_count_ != 0; }
   ::std::string get_firmware_version() const { return firmware_version_; }
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
@@ -207,12 +218,12 @@ class LD2451Component final : public Component, public uart::UARTDevice {
     FIELD_DIRECTION = 0x02,
     FIELD_MIN_SPEED = 0x04,
     FIELD_NO_TARGET_DELAY = 0x08,
-    FIELD_MULTI_TRIGGER = 0x10,
+    FIELD_TRIGGER_COUNT = 0x10,
     FIELD_SNR_THRESHOLD = 0x20,
   };
   static constexpr uint8_t TARGET_DETECTION_FIELDS =
       FIELD_MAX_DISTANCE | FIELD_DIRECTION | FIELD_MIN_SPEED | FIELD_NO_TARGET_DELAY;
-  static constexpr uint8_t SENSITIVITY_FIELDS = FIELD_MULTI_TRIGGER | FIELD_SNR_THRESHOLD;
+  static constexpr uint8_t SENSITIVITY_FIELDS = FIELD_TRIGGER_COUNT | FIELD_SNR_THRESHOLD;
 
   // Marks `field` as changed by the user and queues the command that will
   // write it (or a read first, if the radar's current config isn't known yet).
@@ -258,7 +269,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t cfg_no_target_delay_{1};
   LD2451Direction cfg_direction_{LD2451Direction::ALL};
   uint8_t cfg_snr_threshold_{4};
-  bool cfg_multi_trigger_{false};
+  uint8_t cfg_trigger_count_{0};
   // Assumed true (radar ships with Bluetooth on by default per the user
   // manual) - not read back from the radar since there's no known query
   // command for it. Only reflects what this component has itself set.
@@ -279,7 +290,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t req_no_target_delay_{0};
   LD2451Direction req_direction_{LD2451Direction::ALL};
   uint8_t req_snr_threshold_{0};
-  bool req_multi_trigger_{false};
+  uint8_t req_trigger_count_{0};
   uint8_t req_fields_{0};
   // Requested fields whose latest value is in the SET currently in flight
   uint8_t sent_fields_{0};
@@ -313,6 +324,11 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   LD2451Number *min_speed_number_{nullptr};
   LD2451Number *no_target_delay_number_{nullptr};
   LD2451Number *snr_threshold_number_{nullptr};
+  LD2451Number *trigger_count_number_{nullptr};
+#endif
+
+#ifdef USE_SWITCH
+  LD2451MultiTriggerSwitch *multi_trigger_switch_{nullptr};
 #endif
 };
 
