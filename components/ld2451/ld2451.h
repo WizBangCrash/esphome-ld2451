@@ -198,6 +198,30 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // to MAX_COMMAND_ATTEMPTS, then drops the command.
   void command_failed_();
 
+  // Config fields the user can change. Target detection and sensitivity are
+  // each written as a whole block, so these track which fields in a block
+  // were changed by the user and so must not be taken from the read-back
+  // cfg_* values.
+  enum ConfigField : uint8_t {
+    FIELD_MAX_DISTANCE = 0x01,
+    FIELD_DIRECTION = 0x02,
+    FIELD_MIN_SPEED = 0x04,
+    FIELD_NO_TARGET_DELAY = 0x08,
+    FIELD_MULTI_TRIGGER = 0x10,
+    FIELD_SNR_THRESHOLD = 0x20,
+  };
+  static constexpr uint8_t TARGET_DETECTION_FIELDS =
+      FIELD_MAX_DISTANCE | FIELD_DIRECTION | FIELD_MIN_SPEED | FIELD_NO_TARGET_DELAY;
+  static constexpr uint8_t SENSITIVITY_FIELDS = FIELD_MULTI_TRIGGER | FIELD_SNR_THRESHOLD;
+
+  // Marks `field` as changed by the user and queues the command that will
+  // write it (or a read first, if the radar's current config isn't known yet).
+  void request_config_(uint8_t field);
+  // Handles a successful SET ack: clears the requests that were written,
+  // re-queues the SET if a field changed while it was in flight, and
+  // queues the matching GET to read the values back.
+  void config_written_(CommandFlags set_flag, CommandFlags get_flag, uint8_t fields);
+
   // Command Processor states
   enum class CommandState : uint8_t {
     BEGIN_CONFIG,
@@ -228,7 +252,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
   LD2451Target targets_[LD2451_MAX_TARGETS];
 
-  // last-known config, populated by refresh_config()
+  // Last config read from the radar, populated by the GET commands
   uint8_t cfg_max_distance_{100};
   uint8_t cfg_min_speed_{0};
   uint8_t cfg_no_target_delay_{1};
@@ -239,6 +263,22 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // manual) - not read back from the radar since there's no known query
   // command for it. Only reflects what this component has itself set.
   bool cfg_bluetooth_enabled_{true};
+  // Set once each config block has been read from the radar at least once
+  bool target_detection_read_{false};
+  bool sensitivity_read_{false};
+
+  // Values requested by the user, kept apart from cfg_* so a GET reply can't
+  // overwrite a change that hasn't been written yet. Only fields whose bit is
+  // set in req_fields_ are valid.
+  uint8_t req_max_distance_{0};
+  uint8_t req_min_speed_{0};
+  uint8_t req_no_target_delay_{0};
+  LD2451Direction req_direction_{LD2451Direction::ALL};
+  uint8_t req_snr_threshold_{0};
+  bool req_multi_trigger_{false};
+  uint8_t req_fields_{0};
+  // Requested fields whose latest value is in the SET currently in flight
+  uint8_t sent_fields_{0};
   ::std::string firmware_version_{};
   uint16_t comms_protocol_version_{0xFFFF};
 

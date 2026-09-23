@@ -361,6 +361,12 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       // Process the data
       this->cfg_multi_trigger_ = data[4] == 0x01;
       this->cfg_snr_threshold_ = data[5];
+      this->sensitivity_read_ = true;
+      // Write any change requested before the config was first read
+      if (this->req_fields_ & SENSITIVITY_FIELDS) {
+        this->pending_commands_ |= CommandFlags::SET_SENSITIVITY;
+        this->command_state_ = CommandState::SEND_COMMAND;
+      }
       // TODO: Need to publish multi_trigger switch state here too
 #ifdef USE_NUMBER
       if (this->snr_threshold_number_ != nullptr) {
@@ -370,7 +376,7 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_SET_SENSITIVITY:
-      this->complete_command_(CommandFlags::SET_SENSITIVITY);
+      this->config_written_(CommandFlags::SET_SENSITIVITY, CommandFlags::GET_SENSITIVITY, SENSITIVITY_FIELDS);
       break;
 
     case CMD_GET_TARGET_DETECTION_CFG:
@@ -380,6 +386,12 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
       this->cfg_min_speed_ = data[6];
       this->cfg_no_target_delay_ = data[7];
+      this->target_detection_read_ = true;
+      // Write any change requested before the config was first read
+      if (this->req_fields_ & TARGET_DETECTION_FIELDS) {
+        this->pending_commands_ |= CommandFlags::SET_TARGET_DETECTION;
+        this->command_state_ = CommandState::SEND_COMMAND;
+      }
 #ifdef USE_NUMBER
       if (this->max_distance_number_ != nullptr) {
         this->max_distance_number_->publish_state(this->cfg_max_distance_);
@@ -399,7 +411,8 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_SET_TARGET_DETECTION_CFG:
-      this->complete_command_(CommandFlags::SET_TARGET_DETECTION);
+      this->config_written_(CommandFlags::SET_TARGET_DETECTION, CommandFlags::GET_TARGET_DETECTION,
+                            TARGET_DETECTION_FIELDS);
       break;
   }
   return true;
@@ -578,9 +591,16 @@ void LD2451Component::read_firmware_() { this->write_command_frame_(CMD_READ_FIR
 
 void LD2451Component::get_sensitivity_() { this->write_command_frame_(CMD_GET_SENSITIVITY, nullptr, 0); }
 
-// TODO: cfg_multi_trigger should be a number between 0 and 10. Not a boolean!
+// The SET commands write a whole block, so each field is the user's requested
+// value if there is one, otherwise the value last read from the radar.
+// TODO: multi_trigger should be a number between 0 and 10. Not a boolean!
 void LD2451Component::set_sensitivity_() {
-  const uint8_t val[4] = {static_cast<uint8_t>(this->cfg_multi_trigger_ ? 1 : 0), this->cfg_snr_threshold_, 0x00, 0x00};
+  const uint8_t req = this->req_fields_;
+  const bool multi_trigger = (req & FIELD_MULTI_TRIGGER) ? this->req_multi_trigger_ : this->cfg_multi_trigger_;
+  const uint8_t val[4] = {static_cast<uint8_t>(multi_trigger ? 1 : 0),
+                          (req & FIELD_SNR_THRESHOLD) ? this->req_snr_threshold_ : this->cfg_snr_threshold_, 0x00,
+                          0x00};
+  this->sent_fields_ = req & SENSITIVITY_FIELDS;
   this->write_command_frame_(CMD_SET_SENSITIVITY, val, sizeof(val));
 }
 
@@ -589,8 +609,15 @@ void LD2451Component::get_target_detection_cfg_() {
 }
 
 void LD2451Component::set_target_detection_cfg_() {
-  const uint8_t val[4] = {this->cfg_max_distance_, static_cast<uint8_t>(this->cfg_direction_), this->cfg_min_speed_,
-                          this->cfg_no_target_delay_};
+  const uint8_t req = this->req_fields_;
+  const LD2451Direction direction = (req & FIELD_DIRECTION) ? this->req_direction_ : this->cfg_direction_;
+  const uint8_t val[4] = {
+      (req & FIELD_MAX_DISTANCE) ? this->req_max_distance_ : this->cfg_max_distance_,
+      static_cast<uint8_t>(direction),
+      (req & FIELD_MIN_SPEED) ? this->req_min_speed_ : this->cfg_min_speed_,
+      (req & FIELD_NO_TARGET_DELAY) ? this->req_no_target_delay_ : this->cfg_no_target_delay_,
+  };
+  this->sent_fields_ = req & TARGET_DETECTION_FIELDS;
   this->write_command_frame_(CMD_SET_TARGET_DETECTION_CFG, val, sizeof(val));
 }
 
@@ -714,8 +741,8 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
 // ---------------------------------------------------------------------
 // Public configuration API
 //
-// NOTE: The SET commands are follwed by a GET command in order to ensure
-//       the entities are updated with the value from the LD2451
+// NOTE: Setters only record the requested value. A successful SET is
+//       followed by a GET so the entities show the value from the LD2451.
 // ---------------------------------------------------------------------
 
 void LD2451Component::refresh_config() {
@@ -723,30 +750,53 @@ void LD2451Component::refresh_config() {
                              CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
 }
 
+void LD2451Component::request_config_(uint8_t field) {
+  this->req_fields_ |= field;
+  // A SET already in flight carries the old value of this field
+  this->sent_fields_ &= ~field;
+  if (field & TARGET_DETECTION_FIELDS) {
+    this->pending_commands_ |=
+        this->target_detection_read_ ? CommandFlags::SET_TARGET_DETECTION : CommandFlags::GET_TARGET_DETECTION;
+  } else {
+    this->pending_commands_ |= this->sensitivity_read_ ? CommandFlags::SET_SENSITIVITY : CommandFlags::GET_SENSITIVITY;
+  }
+}
+
+void LD2451Component::config_written_(CommandFlags set_flag, CommandFlags get_flag, uint8_t fields) {
+  this->req_fields_ &= ~(this->sent_fields_ & fields);
+  this->sent_fields_ = 0;
+  this->complete_command_(set_flag);
+  this->pending_commands_ |= get_flag;
+  // A field changed again while this SET was in flight
+  if (this->req_fields_ & fields)
+    this->pending_commands_ |= set_flag;
+  this->command_state_ = CommandState::SEND_COMMAND;
+}
+
 void LD2451Component::set_max_distance(uint8_t meters) {
   if (meters < 10)
     meters = 10;
   if (meters > 100)
     meters = 100;
-  this->cfg_max_distance_ = meters;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_max_distance_ = meters;
+  this->request_config_(FIELD_MAX_DISTANCE);
 }
 
 void LD2451Component::set_min_speed(uint8_t kmh) {
   if (kmh > 0x78)
     kmh = 0x78;
-  this->cfg_min_speed_ = kmh;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_min_speed_ = kmh;
+  this->request_config_(FIELD_MIN_SPEED);
 }
 
 void LD2451Component::set_no_target_delay(uint8_t seconds) {
-  this->cfg_no_target_delay_ = seconds;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_no_target_delay_ = seconds;
+  this->request_config_(FIELD_NO_TARGET_DELAY);
 }
 
 void LD2451Component::set_detection_direction(LD2451Direction direction) {
-  this->cfg_direction_ = direction;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_direction_ = direction;
+  this->request_config_(FIELD_DIRECTION);
 }
 
 void LD2451Component::set_snr_threshold(uint8_t snr) {
@@ -754,13 +804,13 @@ void LD2451Component::set_snr_threshold(uint8_t snr) {
     snr = 3;
   if (snr > 8)
     snr = 8;
-  this->cfg_snr_threshold_ = snr;
-  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
+  this->req_snr_threshold_ = snr;
+  this->request_config_(FIELD_SNR_THRESHOLD);
 }
 
 void LD2451Component::set_multi_trigger(bool require_multiple) {
-  this->cfg_multi_trigger_ = require_multiple;
-  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
+  this->req_multi_trigger_ = require_multiple;
+  this->request_config_(FIELD_MULTI_TRIGGER);
 }
 
 void LD2451Component::set_bluetooth_enable(bool enable) {
