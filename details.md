@@ -114,7 +114,7 @@ All buttons have `entity_category: config`.
 
 | Key | Device Class | Description |
 |-----|-------------|-------------|
-| `factory_reset` | — | Resets all module parameters to factory defaults |
+| `factory_reset` | — | Resets all module parameters to factory defaults and restarts the module |
 | `restart` | `restart` | Reboots the LD2451 module |
 | `refresh_config` | — | Reads current configuration from the module and updates all `number` and `select` entities in Home Assistant |
 

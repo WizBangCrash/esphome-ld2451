@@ -64,6 +64,9 @@ static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
 // Attempts per command (timeouts or failure replies) before it is dropped.
 static constexpr uint8_t MAX_COMMAND_ATTEMPTS = 3;
+// Time allowed for the radar to boot after a restart before sending it more
+// commands. Not specified in the datasheet - chosen conservatively.
+static constexpr uint32_t RESTART_SETTLE_MS = 2000;
 
 // Upper bound on time spent draining the UART buffer in a single
 // process_frames_() call, so a burst/backlog of report frames can't hold up
@@ -159,6 +162,11 @@ void LD2451Component::action_commands_() {
     case CommandState::BEGIN_CONFIG:
       if (!this->pending_commands_)
         break;  // exit if all commands complete
+      if (this->restarting_) {
+        if (!wait_time_exceeded(this->restart_ms_, RESTART_SETTLE_MS))
+          break;  // radar still booting
+        this->restarting_ = false;
+      }
       this->begin_config_();
       this->command_state_ = CommandState::WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
@@ -315,14 +323,25 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_FACTORY_RESET:
-      this->pending_commands_ &= ~CommandFlags::FACTORY_RESET;
-      // No need for an END_CONFIG as I am reseting the module.
-      this->command_state_ = CommandState::BEGIN_CONFIG;
+      // The reset only takes effect after a restart, which factory_reset()
+      // has queued, so carry on in config mode to send it.
+      this->complete_command_(CommandFlags::FACTORY_RESET);
+      // Drop any unwritten changes and assume the default Bluetooth state
+      this->req_fields_ = 0;
+      this->cfg_bluetooth_enabled_ = true;
       break;
 
     case CMD_RESTART:
       this->pending_commands_ &= ~CommandFlags::RESTART;
-      // No need for an END_CONFIG as I am reseting the module.
+      // No need for an END_CONFIG as the radar leaves config mode when it
+      // restarts. Re-read the config once it is back, since a restart may
+      // have applied a factory reset or other change.
+      this->target_detection_read_ = false;
+      this->sensitivity_read_ = false;
+      this->pending_commands_ |=
+          CommandFlags::GET_TARGET_DETECTION | CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
+      this->restarting_ = true;
+      this->restart_ms_ = App.get_loop_component_start_time();
       this->command_state_ = CommandState::BEGIN_CONFIG;
       break;
 
@@ -821,8 +840,9 @@ void LD2451Component::set_bluetooth_enable(bool enable) {
 }
 
 void LD2451Component::factory_reset() {
-  this->pending_commands_ |= CommandFlags::FACTORY_RESET;
-  ESP_LOGI(TAG, "Factory reset requested - restart the module for it to take effect");
+  // The reset only takes effect after a restart, so queue one too
+  this->pending_commands_ |= CommandFlags::FACTORY_RESET | CommandFlags::RESTART;
+  ESP_LOGI(TAG, "Factory reset requested - the module will restart");
 }
 
 void LD2451Component::restart_module() { this->pending_commands_ |= CommandFlags::RESTART; }

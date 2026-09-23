@@ -266,6 +266,10 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // Set once each config block has been read from the radar at least once
   bool target_detection_read_{false};
   bool sensitivity_read_{false};
+  // Set when the radar acks a restart; commands are held off until it has
+  // had time to boot (see RESTART_SETTLE_MS).
+  bool restarting_{false};
+  uint32_t restart_ms_{0};
 
   // Values requested by the user, kept apart from cfg_* so a GET reply can't
   // overwrite a change that hasn't been written yet. Only fields whose bit is
