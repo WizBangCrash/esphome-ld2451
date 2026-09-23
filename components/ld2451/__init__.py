@@ -3,6 +3,9 @@ import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import uart
 from esphome.const import CONF_ID
+from esphome.core import ID
+from esphome.cpp_generator import MockObj, TemplateArgsType
+from esphome.types import ConfigType
 
 CODEOWNERS = ["@WizBangCrash"]
 DEPENDENCIES = ["uart"]
@@ -62,22 +65,31 @@ LD2451_ACTION_SCHEMA = automation.maybe_simple_id(
 @automation.register_action(
     "ld2451.factory_reset", FactoryResetAction, LD2451_ACTION_SCHEMA, synchronous=True
 )
-async def ld2451_factory_reset_to_code(config, action_id, template_arg, args):
-    paren = await cg.get_variable(config[CONF_ID])
-    return cg.new_Pvariable(action_id, template_arg, paren)
+async def ld2451_factory_reset_to_code(
+    config: ConfigType, action_id: ID, template_arg: cg.TemplateArguments, args: TemplateArgsType
+) -> MockObj:
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
 
 
 @automation.register_action(
     "ld2451.restart", RestartAction, LD2451_ACTION_SCHEMA, synchronous=True
 )
-async def ld2451_restart_to_code(config, action_id, template_arg, args):
-    paren = await cg.get_variable(config[CONF_ID])
-    return cg.new_Pvariable(action_id, template_arg, paren)
+async def ld2451_restart_to_code(
+    config: ConfigType, action_id: ID, template_arg: cg.TemplateArguments, args: TemplateArgsType
+) -> MockObj:
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
 
 
 @automation.register_action(
     "ld2451.refresh_config", RefreshConfigAction, LD2451_ACTION_SCHEMA, synchronous=True
 )
-async def ld2451_refresh_config_to_code(config, action_id, template_arg, args):
-    paren = await cg.get_variable(config[CONF_ID])
-    return cg.new_Pvariable(action_id, template_arg, paren)
+async def ld2451_refresh_config_to_code(
+    config: ConfigType, action_id: ID, template_arg: cg.TemplateArguments, args: TemplateArgsType
+) -> MockObj:
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
