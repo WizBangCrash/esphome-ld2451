@@ -3,8 +3,10 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/uart/uart.h"
 
 #ifdef USE_SENSOR
@@ -42,7 +44,7 @@ struct LD2451Target {
   uint8_t distance{0};  // meters
   LD2451Direction direction{LD2451Direction::LD2451_DIRECTION_AWAY};
   uint8_t speed{0};  // km/h
-  uint8_t snr{0};    // signal to noise ratio, 3-8
+  uint8_t snr{0};    // signal to noise ratio, raw units (always >= configured SNR threshold)
 };
 
 class LD2451Component final : public Component, public uart::UARTDevice {
@@ -130,6 +132,26 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   bool get_config_multi_trigger() const { return cfg_trigger_count_ != 0; }
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
+  // True once both the target detection and sensitivity blocks have been
+  // read from the radar, so the get_config_*() values reflect the radar
+  // rather than the built-in defaults.
+  bool is_config_read() const { return this->target_detection_read_ && this->sensitivity_read_; }
+  // True while a requested config change has not yet been written and read
+  // back, or a config read/write is still queued.
+  bool is_config_pending() const {
+    return this->req_fields_ != 0 || (this->pending_commands_ & CONFIG_COMMAND_FLAGS) != 0;
+  }
+  // True if a requested config change was given up on after repeated
+  // failures since the last change was requested.
+  bool is_config_write_failed() const { return this->config_write_failed_; }
+
+  // Called once the config has settled: every requested change has been
+  // written and read back (or given up on) and no config commands remain
+  // queued. The get_config_*() values are then the radar's actual config.
+  template<typename F> void add_on_config_update_callback(F &&callback) {
+    this->config_update_callback_.add(std::forward<F>(callback));
+  }
+
  protected:
   // ---- Command processing helpers ----
   void action_commands_();
@@ -194,6 +216,10 @@ class LD2451Component final : public Component, public uart::UARTDevice {
     COMMAND_FLAG_DUMP_CONFIG = 0x0200,
   };
   uint16_t pending_commands_{0x00};
+  // Commands that read or write the target detection / sensitivity config
+  static constexpr uint16_t CONFIG_COMMAND_FLAGS =
+      CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION | CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION |
+      CommandFlags::COMMAND_FLAG_SET_SENSITIVITY | CommandFlags::COMMAND_FLAG_GET_SENSITIVITY;
 
   // Clears `flag` from pending_commands_ and advances command_state_ to the
   // next pending command, or END_CONFIG if none remain.
@@ -225,6 +251,16 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // re-queues the SET if a field changed while it was in flight, and
   // queues the matching GET to read the values back.
   void config_written_(CommandFlags set_flag, CommandFlags get_flag, uint8_t fields);
+  // Handles config commands in `dropped` being given up on after repeated
+  // failures: abandons any requested changes they carried, reverts the
+  // linked entities to the last values read, and (if the radar is still
+  // responding) queues a read to confirm what it actually holds.
+  void config_commands_dropped_(uint16_t dropped, bool radar_responding);
+  // Fires config_update_callback_ if the config has settled.
+  void notify_config_update_();
+  // Push the last values read from the radar into the linked entities.
+  void publish_target_detection_config_();
+  void publish_sensitivity_config_();
 
   // Command Processor states
   enum class CommandState : uint8_t {
@@ -287,6 +323,9 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t req_fields_{0};
   // Requested fields whose latest value is in the SET currently in flight
   uint8_t sent_fields_{0};
+  // Set when a requested change is given up on; cleared by the next request
+  bool config_write_failed_{false};
+  CallbackManager<void()> config_update_callback_;
   ::std::string firmware_version_{};
   uint16_t comms_protocol_version_{0xFFFF};
 

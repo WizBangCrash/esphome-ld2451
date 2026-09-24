@@ -36,7 +36,7 @@
 namespace esphome::ld2451 {
 
 static const char *const TAG = "ld2451";
-static const char *const COMPONENT_VERSION = "2.1.0";
+static const char *const COMPONENT_VERSION = "2.2.0";
 
 static constexpr uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
 static constexpr uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
@@ -247,12 +247,15 @@ void LD2451Component::command_failed_() {
   this->attempts_ = 0;
   this->status_set_warning();
   switch (this->in_flight_cmd_) {
-    case CMD_ENABLE_CONFIG:
+    case CMD_ENABLE_CONFIG: {
       // Radar isn't responding at all - drop everything until the next request.
       ESP_LOGW(TAG, "No response from radar, dropping pending commands (0x%04X)", this->pending_commands_);
+      const uint16_t dropped = this->pending_commands_;
       this->pending_commands_ = 0;
       this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
+      this->config_commands_dropped_(dropped, false);
       break;
+    }
     case CMD_END_CONFIG:
       ESP_LOGW(TAG, "End config failed, giving up");
       this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
@@ -260,6 +263,7 @@ void LD2451Component::command_failed_() {
     default:
       ESP_LOGW(TAG, "Command %02X failed after %u attempts, skipping", this->in_flight_cmd_, MAX_COMMAND_ATTEMPTS);
       this->pending_commands_ &= ~this->in_flight_flag_;
+      this->config_commands_dropped_(this->in_flight_flag_, true);
       this->command_state_ =
           this->pending_commands_ ? CommandState::COMMAND_STATE_BEGIN_CONFIG : CommandState::COMMAND_STATE_END_CONFIG;
       break;
@@ -391,19 +395,8 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
         this->pending_commands_ |= CommandFlags::COMMAND_FLAG_SET_SENSITIVITY;
         this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
       }
-#ifdef USE_NUMBER
-      if (this->snr_threshold_number_ != nullptr) {
-        this->snr_threshold_number_->publish_state(this->cfg_snr_threshold_);
-      }
-      if (this->trigger_count_number_ != nullptr) {
-        this->trigger_count_number_->publish_state(this->cfg_trigger_count_);
-      }
-#endif
-#ifdef USE_SWITCH
-      if (this->multi_trigger_switch_ != nullptr) {
-        this->multi_trigger_switch_->publish_state(this->cfg_trigger_count_ != 0);
-      }
-#endif
+      this->publish_sensitivity_config_();
+      this->notify_config_update_();
       break;
 
     case CMD_SET_SENSITIVITY:
@@ -424,22 +417,8 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
         this->pending_commands_ |= CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION;
         this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
       }
-#ifdef USE_NUMBER
-      if (this->max_distance_number_ != nullptr) {
-        this->max_distance_number_->publish_state(this->cfg_max_distance_);
-      }
-      if (this->min_speed_number_ != nullptr) {
-        this->min_speed_number_->publish_state(this->cfg_min_speed_);
-      }
-      if (this->no_target_delay_number_ != nullptr) {
-        this->no_target_delay_number_->publish_state(this->cfg_no_target_delay_);
-      }
-#endif
-#ifdef USE_SELECT
-      if (this->direction_select_ != nullptr) {
-        this->direction_select_->publish_direction(this->cfg_direction_);
-      }
-#endif
+      this->publish_target_detection_config_();
+      this->notify_config_update_();
       break;
 
     case CMD_SET_TARGET_DETECTION_CFG:
@@ -785,6 +764,7 @@ void LD2451Component::refresh_config() {
 
 void LD2451Component::request_config_(uint8_t field) {
   this->req_fields_ |= field;
+  this->config_write_failed_ = false;
   // A SET already in flight carries the old value of this field
   this->sent_fields_ &= ~field;
   if (field & TARGET_DETECTION_FIELDS) {
@@ -805,6 +785,75 @@ void LD2451Component::config_written_(CommandFlags set_flag, CommandFlags get_fl
   if (this->req_fields_ & fields)
     this->pending_commands_ |= set_flag;
   this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
+}
+
+void LD2451Component::config_commands_dropped_(uint16_t dropped, bool radar_responding) {
+  if (!(dropped & CONFIG_COMMAND_FLAGS))
+    return;
+
+  // A dropped SET, or a dropped GET that a change was waiting on (see
+  // request_config_()), means the requested changes to that block failed.
+  if ((dropped & (CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION | CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION)) &&
+      (this->req_fields_ & TARGET_DETECTION_FIELDS)) {
+    ESP_LOGW(TAG, "Target detection config change failed");
+    this->req_fields_ &= ~TARGET_DETECTION_FIELDS;
+    this->config_write_failed_ = true;
+    this->publish_target_detection_config_();
+    // The write may still have been applied, so read back what the radar holds
+    if (radar_responding)
+      this->pending_commands_ |= CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION;
+  }
+  if ((dropped & (CommandFlags::COMMAND_FLAG_SET_SENSITIVITY | CommandFlags::COMMAND_FLAG_GET_SENSITIVITY)) &&
+      (this->req_fields_ & SENSITIVITY_FIELDS)) {
+    ESP_LOGW(TAG, "Sensitivity config change failed");
+    this->req_fields_ &= ~SENSITIVITY_FIELDS;
+    this->config_write_failed_ = true;
+    this->publish_sensitivity_config_();
+    if (radar_responding)
+      this->pending_commands_ |= CommandFlags::COMMAND_FLAG_GET_SENSITIVITY;
+  }
+  this->sent_fields_ = 0;
+  this->notify_config_update_();
+}
+
+void LD2451Component::notify_config_update_() {
+  if (!this->is_config_pending())
+    this->config_update_callback_.call();
+}
+
+void LD2451Component::publish_target_detection_config_() {
+#ifdef USE_NUMBER
+  if (this->max_distance_number_ != nullptr) {
+    this->max_distance_number_->publish_state(this->cfg_max_distance_);
+  }
+  if (this->min_speed_number_ != nullptr) {
+    this->min_speed_number_->publish_state(this->cfg_min_speed_);
+  }
+  if (this->no_target_delay_number_ != nullptr) {
+    this->no_target_delay_number_->publish_state(this->cfg_no_target_delay_);
+  }
+#endif
+#ifdef USE_SELECT
+  if (this->direction_select_ != nullptr) {
+    this->direction_select_->publish_direction(this->cfg_direction_);
+  }
+#endif
+}
+
+void LD2451Component::publish_sensitivity_config_() {
+#ifdef USE_NUMBER
+  if (this->snr_threshold_number_ != nullptr) {
+    this->snr_threshold_number_->publish_state(this->cfg_snr_threshold_);
+  }
+  if (this->trigger_count_number_ != nullptr) {
+    this->trigger_count_number_->publish_state(this->cfg_trigger_count_);
+  }
+#endif
+#ifdef USE_SWITCH
+  if (this->multi_trigger_switch_ != nullptr) {
+    this->multi_trigger_switch_->publish_state(this->cfg_trigger_count_ != 0);
+  }
+#endif
 }
 
 void LD2451Component::set_max_distance(uint8_t meters) {
