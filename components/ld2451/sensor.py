@@ -10,8 +10,9 @@ from esphome.const import (
     UNIT_KILOMETER_PER_HOUR,
     UNIT_METER,
 )
+from esphome.types import ConfigType
 
-from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
+from . import CONF_LD2451_ID, MAX_TARGETS, LD2451Component
 
 DEPENDENCIES = ["ld2451"]
 
@@ -25,8 +26,6 @@ ICON_DISTANCE = "mdi:map-marker-distance"
 ICON_SPEED = "mdi:speedometer-slow"
 ICON_TARGET_COUNT = "mdi:car-multiple"
 ICON_ANGLE = "mdi:format-text-rotation-angle-up"
-
-MAX_TARGETS = 5
 
 TARGET_SCHEMA = cv.Schema(
     {
@@ -81,7 +80,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
     if target_count_config := config.get(CONF_TARGET_COUNT):

@@ -2,8 +2,9 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import binary_sensor
 from esphome.const import CONF_ID, DEVICE_CLASS_MOVING, DEVICE_CLASS_OCCUPANCY
+from esphome.types import ConfigType
 
-from . import CONF_LD2451_ID, LD2451Component
+from . import CONF_LD2451_ID, MAX_TARGETS, LD2451Component
 
 DEPENDENCIES = ["ld2451"]
 
@@ -14,8 +15,6 @@ CONF_APPROACHING = "approaching"
 
 ICON_HAS_TARGET = "mdi:shield-car"
 ICON_APPROACHING_TARGET = "mdi:car-traction-control"
-
-MAX_TARGETS = 5
 
 TARGET_SCHEMA = cv.Schema(
     {
@@ -48,7 +47,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
     if has_target_config := config.get(CONF_HAS_TARGET):

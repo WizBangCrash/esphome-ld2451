@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/components/select/select.h"
+#include "esphome/core/log.h"
 #include "ld2451.h"
 
 namespace esphome {
@@ -14,32 +15,21 @@ class LD2451DirectionSelect : public select::Select, public Component {
 
   // Publishes the select's displayed state from an authoritative
   // LD2451Direction value (called from setup() and whenever the parent
-  // re-reads the config from the radar).
+  // re-reads the config from the radar). The option index equals the
+  // LD2451Direction value - see OPTIONS in select.py.
   void publish_direction(LD2451Direction direction) {
-    switch (direction) {
-      case LD2451Direction::AWAY:
-        this->publish_state("Away");
-        break;
-      case LD2451Direction::TOWARD:
-        this->publish_state("Towards");
-        break;
-      case LD2451Direction::ALL:
-      default:
-        this->publish_state("All");
-        break;
+    size_t index = static_cast<size_t>(direction);
+    if (!this->has_index(index)) {
+      ESP_LOGW("ld2451.select", "Unknown detection direction %u", static_cast<uint8_t>(direction));
+      index = static_cast<size_t>(LD2451Direction::LD2451_DIRECTION_ALL);
     }
+    this->publish_state(index);
   }
 
  protected:
-  void control(const std::string &value) override {
-    LD2451Direction dir = LD2451Direction::ALL;
-    if (value == "Away") {
-      dir = LD2451Direction::AWAY;
-    } else if (value == "Towards") {
-      dir = LD2451Direction::TOWARD;
-    }
-    this->parent_->set_detection_direction(dir);
-    this->publish_state(value);
+  void control(size_t index) override {
+    this->parent_->set_detection_direction(static_cast<LD2451Direction>(index));
+    this->publish_state(index);
   }
 
   LD2451Component *parent_{nullptr};

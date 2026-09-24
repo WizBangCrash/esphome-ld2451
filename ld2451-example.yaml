@@ -207,6 +207,12 @@ number:
       name: "Radar SNR Threshold"
       id: radar_snr_threshold
 
+    # Consecutive detections required before a target is reported — range: 0–10, step: 1
+    # Higher values reduce spurious detections at the cost of latency
+    trigger_count:
+      name: "Radar Trigger Count"
+      id: radar_trigger_count
+
 # ── Select (enum configuration) ──────────────────────────────
 select:
   - platform: ld2451
@@ -222,12 +228,6 @@ select:
 switch:
   - platform: ld2451
     ld2451_id: ld2451_radar
-
-    # Require multiple consecutive detections before reporting a target
-    # Reduces spurious detections at the cost of latency
-    require_multiple_detections:
-      name: "Radar Require Multiple Detections"
-      id: radar_require_multiple_detections
 
     # Enable/disable the LD2451 Bluetooth interface
     bluetooth:

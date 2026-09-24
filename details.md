@@ -82,6 +82,7 @@ All numbers are writable and persist to the module's non-volatile memory.
 | `min_speed` | km/h | 0 | 120 | 1 | Minimum radial speed threshold. Slower targets are filtered out |
 | `no_target_delay` | s | 1 | 30 | 1 | Seconds to wait after last detection before clearing `has_target` |
 | `snr_threshold` | — | 3 | 8 | 1 | Signal-to-noise threshold. Higher values reduce false positives |
+| `trigger_count` | — | 0 | 10 | 1 | Consecutive detections required before a target is reported. Higher values reduce spurious hits at the cost of latency |
 
 ---
 
@@ -91,7 +92,7 @@ Platform: `select`
 
 | Key | Options | Description |
 |-----|---------|-------------|
-| `detection_direction` | `AWAY`, `TOWARD`, `ALL` | Filter detections by movement direction relative to the sensor |
+| `detection_direction` | `Away`, `Toward`, `All` | Filter detections by movement direction relative to the sensor |
 
 ---
 
@@ -101,7 +102,7 @@ Platform: `switch`
 
 | Key | Description |
 |-----|-------------|
-| `require_multiple_detections` | When `ON`, requires consecutive detections before reporting a target. Reduces spurious hits at the cost of slightly higher latency |
+| `require_multiple_detections` | **Deprecated** — use the `trigger_count` number instead. `ON` sets a trigger count of 1, `OFF` sets 0 |
 | `bluetooth` | Enables or disables the LD2451 module's onboard Bluetooth interface |
 
 ---
@@ -114,7 +115,7 @@ All buttons have `entity_category: config`.
 
 | Key | Device Class | Description |
 |-----|-------------|-------------|
-| `factory_reset` | — | Resets all module parameters to factory defaults |
+| `factory_reset` | — | Resets all module parameters to factory defaults and restarts the module |
 | `restart` | `restart` | Reboots the LD2451 module |
 | `refresh_config` | — | Reads current configuration from the module and updates all `number` and `select` entities in Home Assistant |
 

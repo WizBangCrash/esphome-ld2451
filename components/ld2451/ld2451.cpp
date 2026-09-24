@@ -1,10 +1,14 @@
 #include "ld2451.h"
-#include <cstring>
+#include <cmath>
+#include <cstdio>
 #ifdef USE_SELECT
 #include "ld2451_select.h"
 #endif
 #ifdef USE_NUMBER
 #include "ld2451_number.h"
+#endif
+#ifdef USE_SWITCH
+#include "ld2451_switch.h"
 #endif
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
@@ -32,7 +36,7 @@
 namespace esphome::ld2451 {
 
 static const char *const TAG = "ld2451";
-static const char *const COMPONENT_VERSION = "2.0.2";
+static const char *const COMPONENT_VERSION = "2.1.0";
 
 static constexpr uint8_t CMD_HEADER[4] = {0xFD, 0xFC, 0xFB, 0xFA};
 static constexpr uint8_t CMD_FOOTER[4] = {0x04, 0x03, 0x02, 0x01};
@@ -62,6 +66,11 @@ static constexpr uint8_t CMD_GET_SENSITIVITY = 0x13;
 // report frame when no target is in view.
 static constexpr uint32_t IDLE_TIMEOUT_MS = 1500;
 static constexpr uint32_t COMMAND_TIMEOUT_MS = 500;
+// Attempts per command (timeouts or failure replies) before it is dropped.
+static constexpr uint8_t MAX_COMMAND_ATTEMPTS = 3;
+// Time allowed for the radar to boot after a restart before sending it more
+// commands. Not specified in the datasheet - chosen conservatively.
+static constexpr uint32_t RESTART_SETTLE_MS = 2000;
 
 // Upper bound on time spent draining the UART buffer in a single
 // process_frames_() call, so a burst/backlog of report frames can't hold up
@@ -88,9 +97,8 @@ void LD2451Component::setup() {
     this->component_version_text_sensor_->publish_state(COMPONENT_VERSION);
   }
 #endif
-  this->pending_commands_ = CommandFlags::READ_FIRMWARE | CommandFlags::GET_TARGET_DETECTION |
-                            CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
-  // this->refresh_config();
+  this->pending_commands_ = CommandFlags::COMMAND_FLAG_READ_FIRMWARE | CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION |
+                            CommandFlags::COMMAND_FLAG_GET_SENSITIVITY | CommandFlags::COMMAND_FLAG_DUMP_CONFIG;
   // Publish an initial "no target" state so sensors don't sit at NaN/unknown
   // until the first report frame arrives (or the idle timeout fires).
   this->clear_all_targets_();
@@ -142,62 +150,72 @@ void LD2451Component::drain_rx_() {
 // Once in Command Mode we can send any pending commands before exiting the mode
 //
 void LD2451Component::action_commands_() {
-  // uint8_t command;
-  // uint8_t val[] = {0x00, 0x00, 0x00, 0x00};
   switch (this->command_state_) {
     // Wait for a response from command action
-    // Timeout if no response recieved within defined period
-    case CommandState::WAIT_RESPONSE:
+    // Timeout if no response received within defined period
+    case CommandState::COMMAND_STATE_WAIT_RESPONSE:
       if (wait_time_exceeded(this->last_action_ms_, COMMAND_TIMEOUT_MS)) {
-        // pending_commands_ is only empty here while waiting on the END_CONFIG
-        // ack - retry that specifically instead of dropping back to idle.
-        this->command_state_ = this->pending_commands_ ? CommandState::BEGIN_CONFIG : CommandState::END_CONFIG;
-        ESP_LOGV(TAG, "Command (0x%04X) response timed out: restarting", this->pending_commands_);
+        ESP_LOGV(TAG, "Command %02X response timed out", this->in_flight_cmd_);
+        this->command_failed_();
       }
       break;
 
-    case CommandState::BEGIN_CONFIG:
+    case CommandState::COMMAND_STATE_BEGIN_CONFIG:
       if (!this->pending_commands_)
         break;  // exit if all commands complete
+      if (this->restarting_) {
+        if (!wait_time_exceeded(this->restart_ms_, RESTART_SETTLE_MS))
+          break;  // radar still booting
+        this->restarting_ = false;
+      }
       this->begin_config_();
-      this->command_state_ = CommandState::WAIT_RESPONSE;
+      this->command_state_ = CommandState::COMMAND_STATE_WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
       break;
 
-    case CommandState::SEND_COMMAND:
+    case CommandState::COMMAND_STATE_SEND_COMMAND:
       // The order of the if statement is important e.g.
       // The Bluetooth change needs to happen before the module restart
-      if (this->pending_commands_ & CommandFlags::FACTORY_RESET) {
+      if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_FACTORY_RESET) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_FACTORY_RESET;
         this->factory_reset_();
-      } else if (this->pending_commands_ & CommandFlags::BLUETOOTH) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_BLUETOOTH) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_BLUETOOTH;
         this->enable_bluetooth_();
-      } else if (this->pending_commands_ & CommandFlags::RESTART) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_RESTART) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_RESTART;
         this->restart_module_();
-      } else if (this->pending_commands_ & CommandFlags::READ_FIRMWARE) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_READ_FIRMWARE) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_READ_FIRMWARE;
         this->read_firmware_();
-      } else if (this->pending_commands_ & CommandFlags::SET_SENSITIVITY) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_SET_SENSITIVITY) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_SET_SENSITIVITY;
         this->set_sensitivity_();
-      } else if (this->pending_commands_ & CommandFlags::SET_TARGET_DETECTION) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION;
         this->set_target_detection_cfg_();
-      } else if (this->pending_commands_ & CommandFlags::GET_SENSITIVITY) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_GET_SENSITIVITY) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_GET_SENSITIVITY;
         this->get_sensitivity_();
-      } else if (this->pending_commands_ & CommandFlags::GET_TARGET_DETECTION) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION) {
+        this->in_flight_flag_ = CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION;
         this->get_target_detection_cfg_();
-      } else if (this->pending_commands_ & CommandFlags::DUMP_CONFIG) {
+      } else if (this->pending_commands_ & CommandFlags::COMMAND_FLAG_DUMP_CONFIG) {
         if (wait_time_exceeded(this->last_action_ms_, 100)) {
           this->dump_config();
-          this->pending_commands_ &= ~CommandFlags::DUMP_CONFIG;
-          this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+          this->pending_commands_ &= ~CommandFlags::COMMAND_FLAG_DUMP_CONFIG;
+          this->command_state_ = this->pending_commands_ ? CommandState::COMMAND_STATE_SEND_COMMAND
+                                                         : CommandState::COMMAND_STATE_END_CONFIG;
         }
         break;
       }
-      this->command_state_ = CommandState::WAIT_RESPONSE;
+      this->command_state_ = CommandState::COMMAND_STATE_WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
       break;
 
-    case CommandState::END_CONFIG:
+    case CommandState::COMMAND_STATE_END_CONFIG:
       this->end_config_();
-      this->command_state_ = CommandState::WAIT_RESPONSE;
+      this->command_state_ = CommandState::COMMAND_STATE_WAIT_RESPONSE;
       this->last_action_ms_ = App.get_loop_component_start_time();
       break;
   }
@@ -210,52 +228,135 @@ void LD2451Component::action_commands_() {
 
 void LD2451Component::complete_command_(CommandFlags flag) {
   this->pending_commands_ &= ~flag;
-  this->command_state_ = this->pending_commands_ ? CommandState::SEND_COMMAND : CommandState::END_CONFIG;
+  this->command_state_ =
+      this->pending_commands_ ? CommandState::COMMAND_STATE_SEND_COMMAND : CommandState::COMMAND_STATE_END_CONFIG;
+}
+
+// Called when the in-flight command times out or the radar reports a failure.
+// Retries (re-entering config mode first) up to MAX_COMMAND_ATTEMPTS, then
+// gives up on that command so a bad command can't keep the radar in config
+// mode forever.
+void LD2451Component::command_failed_() {
+  if (++this->attempts_ < MAX_COMMAND_ATTEMPTS) {
+    // pending_commands_ is only empty here while waiting on the END_CONFIG ack
+    this->command_state_ =
+        this->pending_commands_ ? CommandState::COMMAND_STATE_BEGIN_CONFIG : CommandState::COMMAND_STATE_END_CONFIG;
+    return;
+  }
+
+  this->attempts_ = 0;
+  this->status_set_warning();
+  switch (this->in_flight_cmd_) {
+    case CMD_ENABLE_CONFIG:
+      // Radar isn't responding at all - drop everything until the next request.
+      ESP_LOGW(TAG, "No response from radar, dropping pending commands (0x%04X)", this->pending_commands_);
+      this->pending_commands_ = 0;
+      this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
+      break;
+    case CMD_END_CONFIG:
+      ESP_LOGW(TAG, "End config failed, giving up");
+      this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
+      break;
+    default:
+      ESP_LOGW(TAG, "Command %02X failed after %u attempts, skipping", this->in_flight_cmd_, MAX_COMMAND_ATTEMPTS);
+      this->pending_commands_ &= ~this->in_flight_flag_;
+      this->command_state_ =
+          this->pending_commands_ ? CommandState::COMMAND_STATE_BEGIN_CONFIG : CommandState::COMMAND_STATE_END_CONFIG;
+      break;
+  }
+}
+
+// Minimum ACK payload length for each command: cmd(2) + status(2) + any
+// data bytes read by handle_command_response_frame_().
+static uint16_t min_ack_len(uint8_t command) {
+  switch (command) {
+    case CMD_ENABLE_CONFIG:
+    case CMD_GET_SENSITIVITY:
+      return 6;
+    case CMD_GET_TARGET_DETECTION_CFG:
+      return 8;
+    case CMD_READ_FIRMWARE:
+      return 12;
+    default:
+      return 4;
+  }
 }
 
 bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16_t len) {
+  // ACK frames are cmd(1) 0x01 status(2) [data...]
+  if (len < 4 || data[1] != 0x01) {
+    ESP_LOGW(TAG, "Invalid command response (len %u), ignoring", len);
+    return false;
+  }
   const uint8_t command = data[0];
+  if (len < min_ack_len(command)) {
+    ESP_LOGW(TAG, "Command %02X response too short (%u < %u), ignoring", command, len, min_ack_len(command));
+    return false;
+  }
   const uint16_t result = (data[2] | data[3] << 8);
 
-  // Check for command failure - result non-zero
-  // Commands keep retrying until they are successful
-  if (result) {
-    ESP_LOGW(TAG, "Command %02X failed. Result: %04X", command, result);
+  // Ignore late/stale replies to an earlier command
+  if (this->command_state_ != CommandState::COMMAND_STATE_WAIT_RESPONSE || command != this->in_flight_cmd_) {
+    ESP_LOGV(TAG, "Unexpected response to command %02X, ignoring", command);
     return false;
   }
 
-  // Process succesful command
+  // Check for command failure - result non-zero
+  if (result) {
+    ESP_LOGW(TAG, "Command %02X failed. Result: %04X", command, result);
+    this->command_failed_();
+    return false;
+  }
+  // Enable-config is only the preamble to a retry, so it must not reset the
+  // attempt count of the command being retried.
+  if (command != CMD_ENABLE_CONFIG) {
+    this->attempts_ = 0;
+    this->status_clear_warning();
+  }
+
+  // Process successful command
   switch (command) {
     case CMD_ENABLE_CONFIG:
       if (this->comms_protocol_version_ == 0xFFFF) {
         this->comms_protocol_version_ = (data[4] | data[5] << 8);
       }
-      this->command_state_ = CommandState::SEND_COMMAND;
+      this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
       break;
 
     case CMD_END_CONFIG:
-      this->command_state_ = CommandState::BEGIN_CONFIG;
+      this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
       break;
 
     case CMD_FACTORY_RESET:
-      this->pending_commands_ &= ~CommandFlags::FACTORY_RESET;
-      // No need for an END_CONFIG as I am reseting the module.
-      this->command_state_ = CommandState::BEGIN_CONFIG;
+      // The reset only takes effect after a restart, which factory_reset()
+      // has queued, so carry on in config mode to send it.
+      this->complete_command_(CommandFlags::COMMAND_FLAG_FACTORY_RESET);
+      // Drop any unwritten changes and assume the default Bluetooth state
+      this->req_fields_ = 0;
+      this->cfg_bluetooth_enabled_ = true;
       break;
 
     case CMD_RESTART:
-      this->pending_commands_ &= ~CommandFlags::RESTART;
-      // No need for an END_CONFIG as I am reseting the module.
-      this->command_state_ = CommandState::BEGIN_CONFIG;
+      this->pending_commands_ &= ~CommandFlags::COMMAND_FLAG_RESTART;
+      // No need for an END_CONFIG as the radar leaves config mode when it
+      // restarts. Re-read the config once it is back, since a restart may
+      // have applied a factory reset or other change.
+      this->target_detection_read_ = false;
+      this->sensitivity_read_ = false;
+      this->pending_commands_ |= CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION |
+                                 CommandFlags::COMMAND_FLAG_GET_SENSITIVITY | CommandFlags::COMMAND_FLAG_DUMP_CONFIG;
+      this->restarting_ = true;
+      this->restart_ms_ = App.get_loop_component_start_time();
+      this->command_state_ = CommandState::COMMAND_STATE_BEGIN_CONFIG;
       break;
 
     case CMD_BLUETOOTH:
-      this->complete_command_(CommandFlags::BLUETOOTH);
+      this->complete_command_(CommandFlags::COMMAND_FLAG_BLUETOOTH);
       break;
 
     case CMD_READ_FIRMWARE:
-      this->complete_command_(CommandFlags::READ_FIRMWARE);
-      if (data[5] != 0x24 && data[4] != 0x51) {  // firmware type 0x2451
+      this->complete_command_(CommandFlags::COMMAND_FLAG_READ_FIRMWARE);
+      if (uint16_t(data[4] | data[5] << 8) != 0x2451) {
         ESP_LOGW(TAG, "query_firmware_version_: unexpected firmware type 0x%02X%02X (expected 0x2451)", data[5],
                  data[4]);
       }
@@ -280,29 +381,49 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_GET_SENSITIVITY:
-      this->complete_command_(CommandFlags::GET_SENSITIVITY);
+      this->complete_command_(CommandFlags::COMMAND_FLAG_GET_SENSITIVITY);
       // Process the data
-      this->cfg_multi_trigger_ = data[4] == 0x01;
+      this->cfg_trigger_count_ = data[4];
       this->cfg_snr_threshold_ = data[5];
-      // TODO: Need to publish multi_trigger switch state here too
+      this->sensitivity_read_ = true;
+      // Write any change requested before the config was first read
+      if (this->req_fields_ & SENSITIVITY_FIELDS) {
+        this->pending_commands_ |= CommandFlags::COMMAND_FLAG_SET_SENSITIVITY;
+        this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
+      }
 #ifdef USE_NUMBER
       if (this->snr_threshold_number_ != nullptr) {
         this->snr_threshold_number_->publish_state(this->cfg_snr_threshold_);
+      }
+      if (this->trigger_count_number_ != nullptr) {
+        this->trigger_count_number_->publish_state(this->cfg_trigger_count_);
+      }
+#endif
+#ifdef USE_SWITCH
+      if (this->multi_trigger_switch_ != nullptr) {
+        this->multi_trigger_switch_->publish_state(this->cfg_trigger_count_ != 0);
       }
 #endif
       break;
 
     case CMD_SET_SENSITIVITY:
-      this->complete_command_(CommandFlags::SET_SENSITIVITY);
+      this->config_written_(CommandFlags::COMMAND_FLAG_SET_SENSITIVITY, CommandFlags::COMMAND_FLAG_GET_SENSITIVITY,
+                            SENSITIVITY_FIELDS);
       break;
 
     case CMD_GET_TARGET_DETECTION_CFG:
-      this->complete_command_(CommandFlags::GET_TARGET_DETECTION);
+      this->complete_command_(CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION);
       // Process the data
       this->cfg_max_distance_ = data[4];
       this->cfg_direction_ = static_cast<LD2451Direction>(data[5]);
       this->cfg_min_speed_ = data[6];
       this->cfg_no_target_delay_ = data[7];
+      this->target_detection_read_ = true;
+      // Write any change requested before the config was first read
+      if (this->req_fields_ & TARGET_DETECTION_FIELDS) {
+        this->pending_commands_ |= CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION;
+        this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
+      }
 #ifdef USE_NUMBER
       if (this->max_distance_number_ != nullptr) {
         this->max_distance_number_->publish_state(this->cfg_max_distance_);
@@ -322,7 +443,8 @@ bool LD2451Component::handle_command_response_frame_(const uint8_t *data, uint16
       break;
 
     case CMD_SET_TARGET_DETECTION_CFG:
-      this->complete_command_(CommandFlags::SET_TARGET_DETECTION);
+      this->config_written_(CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION,
+                            CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION, TARGET_DETECTION_FIELDS);
       break;
   }
   return true;
@@ -349,95 +471,91 @@ void LD2451Component::process_frames_() {
     switch (this->state_) {
       uint8_t frame_byte;
       // Decide whether this is a report frame or a command ACK frame, and switch to the appropriate state machine.
-      case ParseState::HEADER_1:
+      case ParseState::PARSE_STATE_HEADER_1:
         if (uart_byte == REPORT_HEADER[0]) {
-          this->state_ = ParseState::HEADER_2;
-          this->frame_type_ = FrameType::REPORT;
+          this->state_ = ParseState::PARSE_STATE_HEADER_2;
+          this->frame_type_ = FrameType::FRAME_TYPE_REPORT;
         } else if (uart_byte == CMD_HEADER[0]) {
-          this->state_ = ParseState::HEADER_2;
-          this->frame_type_ = FrameType::COMMAND;
+          this->state_ = ParseState::PARSE_STATE_HEADER_2;
+          this->frame_type_ = FrameType::FRAME_TYPE_COMMAND;
         }
         break;
 
-      case ParseState::HEADER_2:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[1] : REPORT_HEADER[1];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_3 : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_HEADER_2:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_HEADER[1] : REPORT_HEADER[1];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_HEADER_3 : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::HEADER_3:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[2] : REPORT_HEADER[2];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::HEADER_4 : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_HEADER_3:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_HEADER[2] : REPORT_HEADER[2];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_HEADER_4 : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::HEADER_4:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_HEADER[3] : REPORT_HEADER[3];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::LEN_LOW : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_HEADER_4:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_HEADER[3] : REPORT_HEADER[3];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_LEN_LOW : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::LEN_LOW:
+      case ParseState::PARSE_STATE_LEN_LOW:
         this->payload_len_ = uart_byte;
-        this->state_ = ParseState::LEN_HIGH;
+        this->state_ = ParseState::PARSE_STATE_LEN_HIGH;
         break;
 
-      case ParseState::LEN_HIGH:
+      case ParseState::PARSE_STATE_LEN_HIGH:
         this->payload_len_ |= (static_cast<uint16_t>(uart_byte) << 8);
-        this->payload_.clear();
+        this->payload_pos_ = 0;
         if (this->payload_len_ == 0) {
           // No target present - frame has no payload, go straight to footer.
-          this->state_ = ParseState::FOOTER_1;
-        } else if (this->payload_len_ > 2 + LD2451_MAX_TARGETS * 5) {
+          this->state_ = ParseState::PARSE_STATE_FOOTER_1;
+        } else if (this->payload_len_ > LD2451_MAX_PAYLOAD_LEN) {
           // Sanity check - malformed/garbage length, resync.
           ESP_LOGW(TAG, "Frame length %u out of range, resyncing", this->payload_len_);
-          this->state_ = ParseState::HEADER_1;
+          this->state_ = ParseState::PARSE_STATE_HEADER_1;
         } else {
-          this->payload_.init(this->payload_len_);
-          this->state_ = ParseState::PAYLOAD;
+          this->state_ = ParseState::PARSE_STATE_PAYLOAD;
         }
         break;
 
-      case ParseState::PAYLOAD:
-        this->payload_.push_back(uart_byte);
-        if (this->payload_.size() >= this->payload_len_) {
-          this->state_ = ParseState::FOOTER_1;
+      case ParseState::PARSE_STATE_PAYLOAD:
+        this->payload_[this->payload_pos_++] = uart_byte;
+        if (this->payload_pos_ >= this->payload_len_) {
+          this->state_ = ParseState::PARSE_STATE_FOOTER_1;
         }
         break;
 
-      case ParseState::FOOTER_1:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[0] : REPORT_FOOTER[0];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_2 : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_FOOTER_1:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_FOOTER[0] : REPORT_FOOTER[0];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_FOOTER_2 : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::FOOTER_2:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[1] : REPORT_FOOTER[1];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_3 : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_FOOTER_2:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_FOOTER[1] : REPORT_FOOTER[1];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_FOOTER_3 : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::FOOTER_3:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[2] : REPORT_FOOTER[2];
-        this->state_ = (uart_byte == frame_byte) ? ParseState::FOOTER_4 : ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_FOOTER_3:
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_FOOTER[2] : REPORT_FOOTER[2];
+        this->state_ = (uart_byte == frame_byte) ? ParseState::PARSE_STATE_FOOTER_4 : ParseState::PARSE_STATE_HEADER_1;
         break;
 
-      case ParseState::FOOTER_4:
-        frame_byte = (this->frame_type_ == FrameType::COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
-        this->state_ = ParseState::HEADER_1;
+      case ParseState::PARSE_STATE_FOOTER_4: {
+        frame_byte = (this->frame_type_ == FrameType::FRAME_TYPE_COMMAND) ? CMD_FOOTER[3] : REPORT_FOOTER[3];
+        this->state_ = ParseState::PARSE_STATE_HEADER_1;
         if (uart_byte != frame_byte) {
           ESP_LOGW(TAG, "Frame footer mismatch, dropping frame");
           break;
         }
-        if (this->frame_type_ == FrameType::COMMAND) {
-          char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Command response: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
-                   this->payload_.size());
-          this->handle_command_response_frame_(this->payload_.begin(), this->payload_.size());
+        const bool is_command = this->frame_type_ == FrameType::FRAME_TYPE_COMMAND;
+        char hex_buf[format_hex_pretty_size(LD2451_MAX_PAYLOAD_LEN)];
+        ESP_LOGV(TAG, "%s frame: %s (%u)", is_command ? "Command" : "Report",
+                 format_hex_pretty_to(hex_buf, this->payload_.data(), this->payload_pos_), this->payload_pos_);
+        if (is_command) {
+          this->handle_command_response_frame_(this->payload_.data(), this->payload_pos_);
         } else {
-          char hex_buf[this->payload_.size() * 3];
-          ESP_LOGD(TAG, "Report frame: %s (%u)",
-                   format_hex_pretty_to(hex_buf, sizeof(hex_buf), this->payload_.begin(), this->payload_.size()),
-                   this->payload_.size());
-          this->handle_report_frame_(this->payload_.begin(), this->payload_.size());
+          this->handle_report_frame_(this->payload_.data(), this->payload_pos_);
         }
         break;
+      }
     }
   }
 }
@@ -478,15 +596,16 @@ void LD2451Component::write_command_frame_(uint8_t command, const uint8_t *value
   this->write_byte((inner_len >> 8) & 0xFF);
   this->write_byte(command);
   this->write_byte(0x00);
+  this->in_flight_cmd_ = command;
   if (value_len > 0 && value != nullptr) {
     this->write_array(value, value_len);
   }
   this->write_array(CMD_FOOTER, 4);
   this->flush();
 
-  char hex[value_len * 3 + 1];
-  ESP_LOGV(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, sizeof(hex), value, value_len),
-           value_len);
+  // Largest command value is 4 bytes (set target detection / sensitivity)
+  char hex[format_hex_pretty_size(4)];
+  ESP_LOGV(TAG, "Sent command: %02X, Data: %s (%d)", command, format_hex_pretty_to(hex, value, value_len), value_len);
 }
 
 void LD2451Component::begin_config_() {
@@ -504,9 +623,14 @@ void LD2451Component::read_firmware_() { this->write_command_frame_(CMD_READ_FIR
 
 void LD2451Component::get_sensitivity_() { this->write_command_frame_(CMD_GET_SENSITIVITY, nullptr, 0); }
 
-// TODO: cfg_multi_trigger should be a number between 0 and 10. Not a boolean!
+// The SET commands write a whole block, so each field is the user's requested
+// value if there is one, otherwise the value last read from the radar.
 void LD2451Component::set_sensitivity_() {
-  const uint8_t val[4] = {static_cast<uint8_t>(this->cfg_multi_trigger_ ? 1 : 0), this->cfg_snr_threshold_, 0x00, 0x00};
+  const uint8_t req = this->req_fields_;
+  const uint8_t val[4] = {(req & CONFIG_FIELD_TRIGGER_COUNT) ? this->req_trigger_count_ : this->cfg_trigger_count_,
+                          (req & CONFIG_FIELD_SNR_THRESHOLD) ? this->req_snr_threshold_ : this->cfg_snr_threshold_,
+                          0x00, 0x00};
+  this->sent_fields_ = req & SENSITIVITY_FIELDS;
   this->write_command_frame_(CMD_SET_SENSITIVITY, val, sizeof(val));
 }
 
@@ -515,8 +639,15 @@ void LD2451Component::get_target_detection_cfg_() {
 }
 
 void LD2451Component::set_target_detection_cfg_() {
-  const uint8_t val[4] = {this->cfg_max_distance_, static_cast<uint8_t>(this->cfg_direction_), this->cfg_min_speed_,
-                          this->cfg_no_target_delay_};
+  const uint8_t req = this->req_fields_;
+  const LD2451Direction direction = (req & CONFIG_FIELD_DIRECTION) ? this->req_direction_ : this->cfg_direction_;
+  const uint8_t val[4] = {
+      (req & CONFIG_FIELD_MAX_DISTANCE) ? this->req_max_distance_ : this->cfg_max_distance_,
+      static_cast<uint8_t>(direction),
+      (req & CONFIG_FIELD_MIN_SPEED) ? this->req_min_speed_ : this->cfg_min_speed_,
+      (req & CONFIG_FIELD_NO_TARGET_DELAY) ? this->req_no_target_delay_ : this->cfg_no_target_delay_,
+  };
+  this->sent_fields_ = req & TARGET_DETECTION_FIELDS;
   this->write_command_frame_(CMD_SET_TARGET_DETECTION_CFG, val, sizeof(val));
 }
 
@@ -532,11 +663,11 @@ void LD2451Component::enable_bluetooth_() {
 
 static const char *direction_to_string(LD2451Direction direction) {
   switch (direction) {
-    case LD2451Direction::AWAY:
+    case LD2451Direction::LD2451_DIRECTION_AWAY:
       return "Away";
-    case LD2451Direction::TOWARD:
-      return "Towards";
-    case LD2451Direction::ALL:
+    case LD2451Direction::LD2451_DIRECTION_TOWARD:
+      return "Toward";
+    case LD2451Direction::LD2451_DIRECTION_ALL:
       return "All";
   }
   return "Unknown";
@@ -553,12 +684,12 @@ void LD2451Component::dump_config() {
                 "  No-target delay: %u s\n"
                 "  Detection direction: %s\n"
                 "  SNR threshold: %u\n"
-                "  Multi-trigger required: %s\n"
+                "  Trigger count: %u\n"
                 "  Bluetooth: %s (assumed state - not read back from radar)",
                 COMPONENT_VERSION, this->firmware_version_.empty() ? "Unknown" : this->firmware_version_.c_str(),
                 this->comms_protocol_version_, this->cfg_max_distance_, this->cfg_min_speed_,
                 this->cfg_no_target_delay_, direction_to_string(this->cfg_direction_), this->cfg_snr_threshold_,
-                YESNO(this->cfg_multi_trigger_), ONOFF(this->cfg_bluetooth_enabled_));
+                this->cfg_trigger_count_, ONOFF(this->cfg_bluetooth_enabled_));
 }
 
 void LD2451Component::clear_all_targets_() {
@@ -580,11 +711,11 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
       t.valid = true;
       t.angle = static_cast<int8_t>(static_cast<int16_t>(base[0]) - 0x80);
       t.distance = base[1];
-      t.direction = base[2] == 0x01 ? LD2451Direction::TOWARD : LD2451Direction::AWAY;
+      t.direction = base[2] == 0x01 ? LD2451Direction::LD2451_DIRECTION_TOWARD : LD2451Direction::LD2451_DIRECTION_AWAY;
       t.speed = base[3];
       t.snr = base[4];
       any_target = true;
-      if (t.direction == LD2451Direction::TOWARD)
+      if (t.direction == LD2451Direction::LD2451_DIRECTION_TOWARD)
         any_approaching = true;
     } else {
       t.valid = false;
@@ -608,7 +739,8 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
     if (this->target_speed_sensors_[i] != nullptr) {
       if (t.valid) {
         // Report speed as signed: positive = approaching, negative = away.
-        float signed_speed = t.direction == LD2451Direction::TOWARD ? (float) t.speed : -((float) t.speed);
+        float signed_speed = t.direction == LD2451Direction::LD2451_DIRECTION_TOWARD ? static_cast<float>(t.speed)
+                                                                                     : -static_cast<float>(t.speed);
         this->target_speed_sensors_[i]->publish_state(signed_speed);
       } else if (!std::isnan(this->target_speed_sensors_[i]->get_raw_state())) {
         this->target_speed_sensors_[i]->publish_state(NAN);
@@ -617,7 +749,8 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
 #endif
 #ifdef USE_BINARY_SENSOR
     if (this->target_approaching_binary_sensors_[i] != nullptr) {
-      this->target_approaching_binary_sensors_[i]->publish_state(t.valid && t.direction == LD2451Direction::TOWARD);
+      this->target_approaching_binary_sensors_[i]->publish_state(
+          t.valid && t.direction == LD2451Direction::LD2451_DIRECTION_TOWARD);
     }
 #endif
   }
@@ -640,13 +773,38 @@ void LD2451Component::publish_targets_(const uint8_t *data, uint8_t count) {
 // ---------------------------------------------------------------------
 // Public configuration API
 //
-// NOTE: The SET commands are follwed by a GET command in order to ensure
-//       the entities are updated with the value from the LD2451
+// NOTE: Setters only record the requested value. A successful SET is
+//       followed by a GET so the entities show the value from the LD2451.
 // ---------------------------------------------------------------------
 
 void LD2451Component::refresh_config() {
-  this->pending_commands_ |= CommandFlags::READ_FIRMWARE | CommandFlags::GET_TARGET_DETECTION |
-                             CommandFlags::GET_SENSITIVITY | CommandFlags::DUMP_CONFIG;
+  this->pending_commands_ |= CommandFlags::COMMAND_FLAG_READ_FIRMWARE |
+                             CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION |
+                             CommandFlags::COMMAND_FLAG_GET_SENSITIVITY | CommandFlags::COMMAND_FLAG_DUMP_CONFIG;
+}
+
+void LD2451Component::request_config_(uint8_t field) {
+  this->req_fields_ |= field;
+  // A SET already in flight carries the old value of this field
+  this->sent_fields_ &= ~field;
+  if (field & TARGET_DETECTION_FIELDS) {
+    this->pending_commands_ |= this->target_detection_read_ ? CommandFlags::COMMAND_FLAG_SET_TARGET_DETECTION
+                                                            : CommandFlags::COMMAND_FLAG_GET_TARGET_DETECTION;
+  } else {
+    this->pending_commands_ |= this->sensitivity_read_ ? CommandFlags::COMMAND_FLAG_SET_SENSITIVITY
+                                                       : CommandFlags::COMMAND_FLAG_GET_SENSITIVITY;
+  }
+}
+
+void LD2451Component::config_written_(CommandFlags set_flag, CommandFlags get_flag, uint8_t fields) {
+  this->req_fields_ &= ~(this->sent_fields_ & fields);
+  this->sent_fields_ = 0;
+  this->complete_command_(set_flag);
+  this->pending_commands_ |= get_flag;
+  // A field changed again while this SET was in flight
+  if (this->req_fields_ & fields)
+    this->pending_commands_ |= set_flag;
+  this->command_state_ = CommandState::COMMAND_STATE_SEND_COMMAND;
 }
 
 void LD2451Component::set_max_distance(uint8_t meters) {
@@ -654,25 +812,25 @@ void LD2451Component::set_max_distance(uint8_t meters) {
     meters = 10;
   if (meters > 100)
     meters = 100;
-  this->cfg_max_distance_ = meters;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_max_distance_ = meters;
+  this->request_config_(CONFIG_FIELD_MAX_DISTANCE);
 }
 
 void LD2451Component::set_min_speed(uint8_t kmh) {
   if (kmh > 0x78)
     kmh = 0x78;
-  this->cfg_min_speed_ = kmh;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_min_speed_ = kmh;
+  this->request_config_(CONFIG_FIELD_MIN_SPEED);
 }
 
 void LD2451Component::set_no_target_delay(uint8_t seconds) {
-  this->cfg_no_target_delay_ = seconds;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_no_target_delay_ = seconds;
+  this->request_config_(CONFIG_FIELD_NO_TARGET_DELAY);
 }
 
 void LD2451Component::set_detection_direction(LD2451Direction direction) {
-  this->cfg_direction_ = direction;
-  this->pending_commands_ |= (CommandFlags::SET_TARGET_DETECTION | CommandFlags::GET_TARGET_DETECTION);
+  this->req_direction_ = direction;
+  this->request_config_(CONFIG_FIELD_DIRECTION);
 }
 
 void LD2451Component::set_snr_threshold(uint8_t snr) {
@@ -680,27 +838,30 @@ void LD2451Component::set_snr_threshold(uint8_t snr) {
     snr = 3;
   if (snr > 8)
     snr = 8;
-  this->cfg_snr_threshold_ = snr;
-  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
+  this->req_snr_threshold_ = snr;
+  this->request_config_(CONFIG_FIELD_SNR_THRESHOLD);
 }
 
-void LD2451Component::set_multi_trigger(bool require_multiple) {
-  this->cfg_multi_trigger_ = require_multiple;
-  this->pending_commands_ |= (CommandFlags::SET_SENSITIVITY | CommandFlags::GET_SENSITIVITY);
+void LD2451Component::set_trigger_count(uint8_t count) {
+  if (count > 10)
+    count = 10;
+  this->req_trigger_count_ = count;
+  this->request_config_(CONFIG_FIELD_TRIGGER_COUNT);
 }
 
 void LD2451Component::set_bluetooth_enable(bool enable) {
   ESP_LOGI(TAG, "Bluetooth %s - restarting module for it to take effect", ONOFF(enable));
   this->cfg_bluetooth_enabled_ = enable;
-  this->pending_commands_ |= CommandFlags::BLUETOOTH;
-  this->pending_commands_ |= CommandFlags::RESTART;
+  this->pending_commands_ |= CommandFlags::COMMAND_FLAG_BLUETOOTH;
+  this->pending_commands_ |= CommandFlags::COMMAND_FLAG_RESTART;
 }
 
 void LD2451Component::factory_reset() {
-  this->pending_commands_ |= CommandFlags::FACTORY_RESET;
-  ESP_LOGI(TAG, "Factory reset requested - restart the module for it to take effect");
+  // The reset only takes effect after a restart, so queue one too
+  this->pending_commands_ |= CommandFlags::COMMAND_FLAG_FACTORY_RESET | CommandFlags::COMMAND_FLAG_RESTART;
+  ESP_LOGI(TAG, "Factory reset requested - the module will restart");
 }
 
-void LD2451Component::restart_module() { this->pending_commands_ |= CommandFlags::RESTART; }
+void LD2451Component::restart_module() { this->pending_commands_ |= CommandFlags::COMMAND_FLAG_RESTART; }
 
 }  // namespace esphome::ld2451

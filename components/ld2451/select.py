@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import select
 from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG
+from esphome.types import ConfigType
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -12,7 +13,8 @@ LD2451DirectionSelect = ld2451_ns.class_(
 )
 
 CONF_DETECTION_DIRECTION = "detection_direction"
-OPTIONS = ["Away", "Towards", "All"]
+# Order must match the LD2451Direction values in ld2451.h (index == value)
+OPTIONS = ["Away", "Toward", "All"]
 
 ICON_SWAP_HORIZONTAL = "mdi:swap-horizontal"
 
@@ -29,7 +31,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     var = await cg.get_variable(config[CONF_LD2451_ID])
 
     if direction_config := config.get(CONF_DETECTION_DIRECTION):
