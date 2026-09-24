@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import button
 from esphome.const import CONF_ID, ENTITY_CATEGORY_CONFIG, DEVICE_CLASS_RESTART
+from esphome.types import ConfigType
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -15,12 +16,12 @@ CONF_RESTART = "restart"
 CONF_REFRESH_CONFIG = "refresh_config"
 
 BUTTONS = {
-    CONF_FACTORY_RESET: ("mdi:restore", None, "FACTORY_RESET"),
-    CONF_RESTART: ("mdi:restart", DEVICE_CLASS_RESTART, "RESTART"),
-    CONF_REFRESH_CONFIG: ("mdi:refresh", None, "REFRESH_CONFIG"),
+    CONF_FACTORY_RESET: ("mdi:restore", None, "LD2451_BUTTON_ACTION_FACTORY_RESET"),
+    CONF_RESTART: ("mdi:restart", DEVICE_CLASS_RESTART, "LD2451_BUTTON_ACTION_RESTART"),
+    CONF_REFRESH_CONFIG: ("mdi:refresh", None, "LD2451_BUTTON_ACTION_REFRESH_CONFIG"),
 }
 
-def _button_schema(icon, device_class):
+def _button_schema(icon: str, device_class: str | None) -> cv.Schema:
     kwargs = {"icon": icon, "entity_category": ENTITY_CATEGORY_CONFIG}
     if device_class is not None:
         kwargs["device_class"] = device_class
@@ -39,7 +40,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
     for key, (_icon, _device_class, action) in BUTTONS.items():

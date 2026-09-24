@@ -53,7 +53,7 @@ CONFIG_SCHEMA = cv.All(cv.Schema(
 ), _warn_multi_trigger_deprecated)
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
     if sw_config := config.get(CONF_REQUIRE_MULTIPLE_DETECTIONS):

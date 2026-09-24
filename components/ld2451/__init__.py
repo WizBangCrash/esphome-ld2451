@@ -15,14 +15,9 @@ MULTI_CONF = True
 ld2451_ns = cg.esphome_ns.namespace("ld2451")
 LD2451Component = ld2451_ns.class_("LD2451Component", cg.Component, uart.UARTDevice)
 
-LD2451Direction = ld2451_ns.enum("LD2451Direction", is_class=True)
-DIRECTION_OPTIONS = {
-    "Away": LD2451Direction.AWAY,
-    "Toward": LD2451Direction.TOWARD,
-    "All": LD2451Direction.ALL,
-}
-
 CONF_LD2451_ID = "ld2451_id"
+# Must match LD2451_MAX_TARGETS in ld2451.h
+MAX_TARGETS = 5
 
 # Actions, usable from automations / HA services:
 #   ld2451.factory_reset:  id: my_ld2451
@@ -49,7 +44,7 @@ FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)

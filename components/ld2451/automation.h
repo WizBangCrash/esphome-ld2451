@@ -6,14 +6,12 @@
 
 namespace esphome::ld2451 {
 
-template<typename... Ts>
-class LD2451FactoryResetAction final : public Action<Ts...>, public Parented<LD2451Component> {
+template<typename... Ts> class LD2451FactoryResetAction final : public Action<Ts...>, public Parented<LD2451Component> {
  public:
   void play(const Ts &...x) override { this->parent_->factory_reset(); }
 };
 
-template<typename... Ts>
-class LD2451RestartAction final : public Action<Ts...>, public Parented<LD2451Component> {
+template<typename... Ts> class LD2451RestartAction final : public Action<Ts...>, public Parented<LD2451Component> {
  public:
   void play(const Ts &...x) override { this->parent_->restart_module(); }
 };

@@ -92,7 +92,7 @@ Platform: `select`
 
 | Key | Options | Description |
 |-----|---------|-------------|
-| `detection_direction` | `AWAY`, `TOWARD`, `ALL` | Filter detections by movement direction relative to the sensor |
+| `detection_direction` | `Away`, `Toward`, `All` | Filter detections by movement direction relative to the sensor |
 
 ---
 

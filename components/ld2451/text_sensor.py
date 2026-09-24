@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import text_sensor
 from esphome.const import CONF_ID, ENTITY_CATEGORY_DIAGNOSTIC, ICON_CHIP
+from esphome.types import ConfigType
 
 from . import CONF_LD2451_ID, LD2451Component
 
@@ -26,7 +27,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     var = await cg.get_variable(config[CONF_LD2451_ID])
 
     if fw_config := config.get(CONF_FIRMWARE_VERSION):

@@ -9,6 +9,7 @@ from esphome.const import (
     UNIT_SECOND,
     ICON_TIMER,
 )
+from esphome.types import ConfigType
 
 from . import CONF_LD2451_ID, LD2451Component, ld2451_ns
 
@@ -34,7 +35,7 @@ NUMBERS = {
         100,
         1,
         ICON_ARROW_EXPAND_HORIZONTAL,
-        "MAX_DISTANCE",
+        "LD2451_NUMBER_FIELD_MAX_DISTANCE",
         "set_max_distance_number",
     ),
     CONF_MIN_SPEED: (
@@ -43,7 +44,7 @@ NUMBERS = {
         120,
         1,
         ICON_SPEED_SLOW,
-        "MIN_SPEED",
+        "LD2451_NUMBER_FIELD_MIN_SPEED",
         "set_min_speed_number",
     ),
     CONF_NO_TARGET_DELAY: (
@@ -52,11 +53,11 @@ NUMBERS = {
         30,
         1,
         ICON_TIMER,
-        "NO_TARGET_DELAY",
+        "LD2451_NUMBER_FIELD_NO_TARGET_DELAY",
         "set_no_target_delay_number",
     ),
-    CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "SNR_THRESHOLD", "set_snr_threshold_number"),
-    CONF_TRIGGER_COUNT: ("", 0, 10, 1, "mdi:counter", "TRIGGER_COUNT", "set_trigger_count_number"),
+    CONF_SNR_THRESHOLD: ("", 3, 8, 1, "mdi:signal", "LD2451_NUMBER_FIELD_SNR_THRESHOLD", "set_snr_threshold_number"),
+    CONF_TRIGGER_COUNT: ("", 0, 10, 1, "mdi:counter", "LD2451_NUMBER_FIELD_TRIGGER_COUNT", "set_trigger_count_number"),
 }
 
 CONFIG_SCHEMA = cv.Schema(
@@ -76,7 +77,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-async def to_code(config):
+async def to_code(config: ConfigType) -> None:
     hub = await cg.get_variable(config[CONF_LD2451_ID])
 
     for key, (_unit, min_val, max_val, step, _icon, field, setter) in NUMBERS.items():

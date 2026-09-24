@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 
 #include "esphome/core/component.h"
@@ -16,12 +17,6 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #endif
 
-namespace esphome::sensor {
-// Keep the pointer declarations valid even when the sensor platform header is
-// not enabled in this translation unit.
-class Sensor;
-}  // namespace esphome::sensor
-
 namespace esphome::ld2451 {
 
 // Defined in ld2451_select.h / ld2451_number.h, which include this header -
@@ -36,16 +31,16 @@ static constexpr uint8_t LD2451_MAX_TARGETS = 5;
 static constexpr uint16_t LD2451_MAX_PAYLOAD_LEN = 2 + LD2451_MAX_TARGETS * 5;
 
 enum class LD2451Direction : uint8_t {
-  AWAY = 0x00,    // target moving away from the radar
-  TOWARD = 0x01,  // target moving toward the radar
-  ALL = 0x02,     // used only for the "detection direction" config parameter
+  LD2451_DIRECTION_AWAY = 0x00,    // target moving away from the radar
+  LD2451_DIRECTION_TOWARD = 0x01,  // target moving toward the radar
+  LD2451_DIRECTION_ALL = 0x02,     // used only for the "detection direction" config parameter
 };
 
 struct LD2451Target {
   bool valid{false};
   int8_t angle{0};      // degrees, signed (raw byte - 0x80)
   uint8_t distance{0};  // meters
-  LD2451Direction direction{LD2451Direction::AWAY};
+  LD2451Direction direction{LD2451Direction::LD2451_DIRECTION_AWAY};
   uint8_t speed{0};  // km/h
   uint8_t snr{0};    // signal to noise ratio, 3-8
 };
@@ -55,7 +50,6 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   void setup() override;
   void loop() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
   // ---- Configuration (called from number/select/switch/button platforms) ----
   // These issue a full enable-config / command / end-config exchange with the
@@ -65,7 +59,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   void set_min_speed(uint8_t kmh);            // 0-120 km/h
   void set_no_target_delay(uint8_t seconds);  // 0-255 s
   void set_detection_direction(LD2451Direction direction);
-  void set_snr_threshold(uint8_t snr);            // 3-8
+  void set_snr_threshold(uint8_t snr);  // 3-8
   // Number of consecutive detections required before a target is reported
   // ("cumulative effective trigger times"), 0-10.
   void set_trigger_count(uint8_t count);
@@ -134,7 +128,6 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t get_config_snr_threshold() const { return cfg_snr_threshold_; }
   uint8_t get_config_trigger_count() const { return cfg_trigger_count_; }
   bool get_config_multi_trigger() const { return cfg_trigger_count_ != 0; }
-  ::std::string get_firmware_version() const { return firmware_version_; }
   bool get_config_bluetooth_enabled() const { return cfg_bluetooth_enabled_; }
 
  protected:
@@ -170,35 +163,35 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
   // Receive frame states (REPORT FRAME | COMMAND FRAME)
   enum class ParseState : uint8_t {
-    HEADER_1,  // 0xF4 or 0xFD
-    HEADER_2,  // 0xF3 or 0xFC
-    HEADER_3,  // 0xF2 or 0xFB
-    HEADER_4,  // 0xF1 or 0xFA
-    LEN_LOW,
-    LEN_HIGH,
-    PAYLOAD,
-    FOOTER_1,  // 0xF8 or 0x04
-    FOOTER_2,  // 0xF7 or 0x03
-    FOOTER_3,  // 0xF6 or 0x02
-    FOOTER_4,  // 0xF5 or 0x01
+    PARSE_STATE_HEADER_1,  // 0xF4 or 0xFD
+    PARSE_STATE_HEADER_2,  // 0xF3 or 0xFC
+    PARSE_STATE_HEADER_3,  // 0xF2 or 0xFB
+    PARSE_STATE_HEADER_4,  // 0xF1 or 0xFA
+    PARSE_STATE_LEN_LOW,
+    PARSE_STATE_LEN_HIGH,
+    PARSE_STATE_PAYLOAD,
+    PARSE_STATE_FOOTER_1,  // 0xF8 or 0x04
+    PARSE_STATE_FOOTER_2,  // 0xF7 or 0x03
+    PARSE_STATE_FOOTER_3,  // 0xF6 or 0x02
+    PARSE_STATE_FOOTER_4,  // 0xF5 or 0x01
   };
-  ParseState state_{ParseState::HEADER_1};
+  ParseState state_{ParseState::PARSE_STATE_HEADER_1};
 
-  enum class FrameType : uint8_t { REPORT, COMMAND };
-  FrameType frame_type_{FrameType::REPORT};
+  enum class FrameType : uint8_t { FRAME_TYPE_REPORT, FRAME_TYPE_COMMAND };
+  FrameType frame_type_{FrameType::FRAME_TYPE_REPORT};
 
   // Bitmask for the list of commands pending for the next loop() call
   enum CommandFlags : uint16_t {
-    READ_FIRMWARE = 0x0001,
-    SET_BAUDRATE = 0x0002,
-    FACTORY_RESET = 0x0004,
-    RESTART = 0x0008,
-    BLUETOOTH = 0x0010,
-    SET_TARGET_DETECTION = 0x0020,
-    GET_TARGET_DETECTION = 0x0040,
-    SET_SENSITIVITY = 0x0080,
-    GET_SENSITIVITY = 0x0100,
-    DUMP_CONFIG = 0x0200,
+    COMMAND_FLAG_READ_FIRMWARE = 0x0001,
+    COMMAND_FLAG_SET_BAUDRATE = 0x0002,
+    COMMAND_FLAG_FACTORY_RESET = 0x0004,
+    COMMAND_FLAG_RESTART = 0x0008,
+    COMMAND_FLAG_BLUETOOTH = 0x0010,
+    COMMAND_FLAG_SET_TARGET_DETECTION = 0x0020,
+    COMMAND_FLAG_GET_TARGET_DETECTION = 0x0040,
+    COMMAND_FLAG_SET_SENSITIVITY = 0x0080,
+    COMMAND_FLAG_GET_SENSITIVITY = 0x0100,
+    COMMAND_FLAG_DUMP_CONFIG = 0x0200,
   };
   uint16_t pending_commands_{0x00};
 
@@ -214,16 +207,16 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   // were changed by the user and so must not be taken from the read-back
   // cfg_* values.
   enum ConfigField : uint8_t {
-    FIELD_MAX_DISTANCE = 0x01,
-    FIELD_DIRECTION = 0x02,
-    FIELD_MIN_SPEED = 0x04,
-    FIELD_NO_TARGET_DELAY = 0x08,
-    FIELD_TRIGGER_COUNT = 0x10,
-    FIELD_SNR_THRESHOLD = 0x20,
+    CONFIG_FIELD_MAX_DISTANCE = 0x01,
+    CONFIG_FIELD_DIRECTION = 0x02,
+    CONFIG_FIELD_MIN_SPEED = 0x04,
+    CONFIG_FIELD_NO_TARGET_DELAY = 0x08,
+    CONFIG_FIELD_TRIGGER_COUNT = 0x10,
+    CONFIG_FIELD_SNR_THRESHOLD = 0x20,
   };
   static constexpr uint8_t TARGET_DETECTION_FIELDS =
-      FIELD_MAX_DISTANCE | FIELD_DIRECTION | FIELD_MIN_SPEED | FIELD_NO_TARGET_DELAY;
-  static constexpr uint8_t SENSITIVITY_FIELDS = FIELD_TRIGGER_COUNT | FIELD_SNR_THRESHOLD;
+      CONFIG_FIELD_MAX_DISTANCE | CONFIG_FIELD_DIRECTION | CONFIG_FIELD_MIN_SPEED | CONFIG_FIELD_NO_TARGET_DELAY;
+  static constexpr uint8_t SENSITIVITY_FIELDS = CONFIG_FIELD_TRIGGER_COUNT | CONFIG_FIELD_SNR_THRESHOLD;
 
   // Marks `field` as changed by the user and queues the command that will
   // write it (or a read first, if the radar's current config isn't known yet).
@@ -235,12 +228,12 @@ class LD2451Component final : public Component, public uart::UARTDevice {
 
   // Command Processor states
   enum class CommandState : uint8_t {
-    BEGIN_CONFIG,
-    END_CONFIG,
-    SEND_COMMAND,
-    WAIT_RESPONSE,
+    COMMAND_STATE_BEGIN_CONFIG,
+    COMMAND_STATE_END_CONFIG,
+    COMMAND_STATE_SEND_COMMAND,
+    COMMAND_STATE_WAIT_RESPONSE,
   };
-  CommandState command_state_{CommandState::BEGIN_CONFIG};
+  CommandState command_state_{CommandState::COMMAND_STATE_BEGIN_CONFIG};
   // Time last configuration session started
   uint32_t last_action_ms_{0};
   // Command byte last sent to the radar, and the pending flag it serves
@@ -267,7 +260,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t cfg_max_distance_{100};
   uint8_t cfg_min_speed_{0};
   uint8_t cfg_no_target_delay_{1};
-  LD2451Direction cfg_direction_{LD2451Direction::ALL};
+  LD2451Direction cfg_direction_{LD2451Direction::LD2451_DIRECTION_ALL};
   uint8_t cfg_snr_threshold_{4};
   uint8_t cfg_trigger_count_{0};
   // Assumed true (radar ships with Bluetooth on by default per the user
@@ -288,7 +281,7 @@ class LD2451Component final : public Component, public uart::UARTDevice {
   uint8_t req_max_distance_{0};
   uint8_t req_min_speed_{0};
   uint8_t req_no_target_delay_{0};
-  LD2451Direction req_direction_{LD2451Direction::ALL};
+  LD2451Direction req_direction_{LD2451Direction::LD2451_DIRECTION_ALL};
   uint8_t req_snr_threshold_{0};
   uint8_t req_trigger_count_{0};
   uint8_t req_fields_{0};
