@@ -16,6 +16,7 @@ ld2451_ns = cg.esphome_ns.namespace("ld2451")
 LD2451Component = ld2451_ns.class_("LD2451Component", cg.Component, uart.UARTDevice)
 
 CONF_LD2451_ID = "ld2451_id"
+CONF_ON_CONFIG_UPDATE = "on_config_update"
 # Must match LD2451_MAX_TARGETS in ld2451.h
 MAX_TARGETS = 5
 
@@ -29,9 +30,17 @@ RefreshConfigAction = ld2451_ns.class_("LD2451RefreshConfigAction", automation.A
 
 CONFIG_SCHEMA = (cv.Schema({
     cv.GenerateID(): cv.declare_id(LD2451Component),
+    cv.Optional(CONF_ON_CONFIG_UPDATE): automation.validate_automation({}),
     })
     .extend(cv.COMPONENT_SCHEMA)
     .extend(uart.UART_DEVICE_SCHEMA)
+)
+
+# Fires once the radar's target detection and sensitivity config has settled:
+# every requested change has been written and read back (or given up on), and
+# no config reads or writes remain queued.
+_CALLBACK_AUTOMATIONS = (
+    automation.CallbackAutomation(CONF_ON_CONFIG_UPDATE, "add_on_config_update_callback"),
 )
 
 FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
@@ -48,6 +57,7 @@ async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
+    await automation.build_callback_automations(var, config, _CALLBACK_AUTOMATIONS)
 
 
 LD2451_ACTION_SCHEMA = automation.maybe_simple_id(
