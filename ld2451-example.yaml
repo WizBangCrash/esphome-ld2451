@@ -66,6 +66,12 @@ uart:
 ld2451:
   id: ld2451_radar
   uart_id: uart_bus
+  # Runs once the radar config has settled after boot, a change or a refresh
+  on_config_update:
+    - lambda: |-
+        ESP_LOGI("main", "Radar config: max distance %u m, min speed %u km/h%s",
+                 id(ld2451_radar).get_config_max_distance(), id(ld2451_radar).get_config_min_speed(),
+                 id(ld2451_radar).is_config_write_failed() ? " (last change failed)" : "");
 
 # ── Sensors (numeric measurements) ──────────────────────────
 sensor:
